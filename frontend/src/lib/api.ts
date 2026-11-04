@@ -1,10 +1,87 @@
 import { DEFAULT_MODELS } from "../types";
-import type { CaseIntel, ChatRequest, ModelOption, StreamEvent } from "../types";
+import type { Case, CaseIntel, ChatRequest, ModelOption, StreamEvent } from "../types";
 import { mockAnalyze, mockStream } from "./mock";
 
 const API = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/$/, "");
 export const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true" || !API;
 export const API_URL = API;
+
+
+type ApiCase = {
+  case_id: string;
+  organization_id: string;
+  case_name: string;
+  case_description: string | null;
+  jurisdiction: string | null;
+  court: string | null;
+  case_type: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function toFrontendCase(row: ApiCase): Case {
+  return {
+    id: row.case_id,
+    title: row.case_name,
+    client: "",
+    opposingParty: "",
+    court: row.court ?? "",
+    caseNumber: "",
+    jurisdiction: row.jurisdiction ?? "",
+    practiceArea: row.case_type ?? "General",
+    status: row.status === "active" ? "active" : "closed",
+    createdAt: Date.parse(row.created_at),
+  };
+}
+
+async function readApiError(res: Response, fallback: string): Promise<Error> {
+  try {
+    const body = await res.json();
+    const detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail ?? body);
+    return new Error(detail || fallback);
+  } catch {
+    return new Error(`${fallback} (${res.status})`);
+  }
+}
+
+/** Fetch cases from the authenticated demo-tenant API. */
+export async function fetchCases(): Promise<Case[]> {
+  if (USE_MOCK) throw new Error("Mock mode is enabled; refusing to present local cases as server data.");
+  const res = await fetch(`${API}/api/cases`, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw await readApiError(res, "Could not load cases");
+  const rows = (await res.json()) as ApiCase[];
+  return rows.map(toFrontendCase);
+}
+
+/** Create a case in the backend and return its server-generated ID. */
+export async function createCaseRemote(input: {
+  title: string;
+  client: string;
+  opposingParty: string;
+  court: string;
+  jurisdiction: string;
+  practiceArea: string;
+}): Promise<Case> {
+  if (USE_MOCK) throw new Error("Mock mode is enabled; refusing to create a local-only case.");
+  const description = [
+    input.client ? `Client: ${input.client}` : "",
+    input.opposingParty ? `Opposing party: ${input.opposingParty}` : "",
+  ].filter(Boolean).join("\n") || null;
+  const res = await fetch(`${API}/api/cases`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      case_name: input.title,
+      case_description: description,
+      jurisdiction: input.jurisdiction || null,
+      court: input.court || null,
+      case_type: input.practiceArea || null,
+    }),
+  });
+  if (!res.ok) throw await readApiError(res, "Could not create case");
+  return toFrontendCase((await res.json()) as ApiCase);
+}
 
 /**
  * POST /api/chat/stream  ->  text/event-stream

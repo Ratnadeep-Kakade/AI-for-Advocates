@@ -29,6 +29,7 @@ interface State {
   setBusy: (chatId: string, b: boolean) => void;
   setSidebar: (o: boolean) => void;
 
+  setCases: (cases: Case[]) => void;
   createCase: (c: Omit<Case, "id" | "createdAt" | "status">) => string;
   updateCase: (id: string, patch: Partial<Case>) => void;
   setIntel: (id: string, intel: CaseIntel) => void;
@@ -90,6 +91,7 @@ export const useStore = create<State>()(
       setBusy: (chatId, b) => set((s) => ({ busy: { ...s.busy, [chatId]: b } })),
       setSidebar: (sidebarOpen) => set({ sidebarOpen }),
 
+      setCases: (cases) => set({ cases }),
       createCase: (c) => {
         const id = uid();
         set((s) => ({ cases: [{ ...c, id, status: "active", createdAt: Date.now() }, ...s.cases] }));

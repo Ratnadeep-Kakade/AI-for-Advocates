@@ -1,0 +1,15 @@
+CICERO CORS setup
+=================
+
+Add this key to the existing Modal secret named cicero-database:
+
+CICERO_CORS_ALLOWED_ORIGINS=https://ai-for-advocates-xi.vercel.app
+
+Do not add a trailing slash. Keep the existing database and demo keys unchanged.
+Redeploy from the backend repository root with:
+
+uv run modal deploy deploy/modal/api_app.py
+
+The API only allows the exact Vercel origin. Credentials are disabled because
+the current demo identity is configured server-side and no browser cookie auth
+is used. This is a hackathon demo configuration, not production authentication.
