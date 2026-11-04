@@ -11,7 +11,7 @@ def test_gcs_settings_have_expected_defaults() -> None:
     assert settings.gcs_bucket_name == "cicero-legal-documents-1575"
     assert settings.gcs_upload_url_expiry_seconds == 900
     assert settings.gcs_download_url_expiry_seconds == 300
-    assert settings.gcs_max_file_size_bytes == 50 * 1024 * 1024
+    assert settings.gcs_max_file_size_bytes == 200 * 1024 * 1024
 
 
 def test_gcs_settings_can_be_overridden_by_environment(monkeypatch) -> None:

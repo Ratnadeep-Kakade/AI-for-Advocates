@@ -1,6 +1,6 @@
 import logging
+from collections.abc import Mapping
 from time import monotonic
-from typing import Mapping
 
 from cicero.config import Settings, get_settings
 from cicero.models.contracts import GenerationRequest, GenerationResult, ModelRole
@@ -72,7 +72,10 @@ class ModelGateway:
             providers=providers,
             role_targets={
                 ModelRole.INTERPRETER: (settings.interpreter_provider, settings.interpreter_model),
-                ModelRole.ORCHESTRATOR: (settings.orchestrator_provider, settings.orchestrator_model),
+                ModelRole.ORCHESTRATOR: (
+                    settings.orchestrator_provider,
+                    settings.orchestrator_model,
+                ),
                 ModelRole.DOCUMENT_INTELLIGENCE: (
                     settings.document_intelligence_provider,
                     settings.document_intelligence_model,

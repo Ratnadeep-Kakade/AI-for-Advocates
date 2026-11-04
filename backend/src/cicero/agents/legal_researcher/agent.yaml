@@ -1,0 +1,23 @@
+agent_id: legal_researcher
+name: Legal Researcher
+version: "1.0"
+description: >
+  Researches applicable legal authorities. Generates search queries executed by
+  the Python Gemini Grounding adapter, distinguishes statutes, regulations and
+  judgments, and separates favourable, adverse, conflicting and unresolved
+  authorities. Runs on DeepSeek-R1-Distill-Llama-70B.
+capabilities:
+  - Research statutes and regulations
+  - Research case law and judgments
+  - Identify favourable and adverse authorities
+  - Detect conflicting authorities
+model_role: legal_researcher
+tools:
+  - retrieve_case_evidence
+  - gemini_grounded_search
+inputs:
+  - case_id
+  - legal_questions
+outputs:
+  - research_findings
+can_run_in_parallel: true

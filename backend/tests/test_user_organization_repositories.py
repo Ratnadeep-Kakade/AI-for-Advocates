@@ -46,7 +46,9 @@ async def test_user_repository_normalizes_email_lookup() -> None:
 
 @pytest.mark.asyncio
 async def test_organization_repository_lists_only_user_memberships() -> None:
-    result = SimpleNamespace(scalars=MagicMock(return_value=SimpleNamespace(all=MagicMock(return_value=[]))))
+    result = SimpleNamespace(
+        scalars=MagicMock(return_value=SimpleNamespace(all=MagicMock(return_value=[])))
+    )
     session = _session_with_result(result)
     user_id = uuid4()
 
@@ -63,9 +65,7 @@ def test_add_member_stages_membership_without_committing() -> None:
     session.execute = AsyncMock()
     organization_id, user_id = uuid4(), uuid4()
 
-    membership = OrganizationRepository(session).add_member(
-        organization_id, user_id, role="lawyer"
-    )
+    membership = OrganizationRepository(session).add_member(organization_id, user_id, role="lawyer")
 
     assert isinstance(membership, OrganizationMember)
     assert membership.organization_id == organization_id

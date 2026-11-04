@@ -1,0 +1,24 @@
+agent_id: document_intelligence
+name: Document Intelligence Agent
+version: "1.0"
+description: >
+  Analyses case documents through verified RAG evidence packs and produces
+  structured case intelligence: parties, facts, timeline, obligations, defined
+  terms, potential breaches, contradictions and missing information. Runs on
+  Muse Spark; every factual assertion must cite a retrieved evidence item.
+capabilities:
+  - Analyse case documents
+  - Extract parties and their roles
+  - Extract obligations and deadlines
+  - Identify potential breaches
+  - Detect contradictions between clauses
+model_role: document_intelligence
+tools:
+  - retrieve_case_evidence
+inputs:
+  - case_id
+  - document_set
+  - user_objective
+outputs:
+  - case_intelligence
+can_run_in_parallel: true

@@ -1,0 +1,21 @@
+[
+  {
+    "origin": [
+      "https://ai-for-advocates-xi.vercel.app",
+      "http://localhost:5173"
+    ],
+    "method": [
+      "PUT",
+      "GET",
+      "HEAD"
+    ],
+    "responseHeader": [
+      "Content-Type",
+      "ETag",
+      "x-goog-generation",
+      "x-goog-metageneration",
+      "x-goog-hash"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

@@ -1,0 +1,22 @@
+agent_id: argument
+name: Argument Agent
+version: "1.0"
+description: >
+  Constructs the strongest evidence-based legal arguments for the user's
+  position from case intelligence, retrieved evidence and research findings.
+  Runs on DeepSeek-R1-Distill-Llama-70B.
+capabilities:
+  - Construct legal arguments
+  - Link propositions to evidence and authorities
+  - Identify vulnerabilities in its own position
+model_role: argument
+tools:
+  - retrieve_case_evidence
+inputs:
+  - case_id
+  - case_intelligence_reference
+  - research_findings_reference
+  - user_position
+outputs:
+  - argument_output
+can_run_in_parallel: true

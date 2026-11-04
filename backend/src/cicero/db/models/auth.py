@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Text, UniqueConstraint, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,10 +38,18 @@ class User(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     email: Mapped[str] = mapped_column(Text, nullable=False)
     profile_picture: Mapped[str | None] = mapped_column(Text)
-    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    account_status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    account_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'active'")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
 
 
 class Organization(Base):
@@ -51,26 +68,40 @@ class Organization(Base):
     organization_name: Mapped[str] = mapped_column(Text, nullable=False)
     organization_type: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("auth.users.user_id", name="organizations_created_by_fkey"), nullable=False
+        PGUUID(as_uuid=True),
+        ForeignKey("auth.users.user_id", name="organizations_created_by_fkey"),
+        nullable=False,
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
 
 
 class OrganizationMember(Base):
     __tablename__ = "organization_members"
     organization_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("auth.organizations.organization_id", name="organization_members_organization_id_fkey", ondelete="CASCADE"),
+        ForeignKey(
+            "auth.organizations.organization_id",
+            name="organization_members_organization_id_fkey",
+            ondelete="CASCADE",
+        ),
         primary_key=True,
     )
     user_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("auth.users.user_id", name="organization_members_user_id_fkey", ondelete="CASCADE"),
+        ForeignKey(
+            "auth.users.user_id", name="organization_members_user_id_fkey", ondelete="CASCADE"
+        ),
         primary_key=True,
     )
     role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'member'"))
-    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    joined_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
     __table_args__ = (
         CheckConstraint(
             "role = ANY (ARRAY['owner'::text, 'admin'::text, 'lawyer'::text, 'member'::text])",

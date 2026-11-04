@@ -26,6 +26,7 @@ IMAGE = (
         "asyncpg>=0.30,<1.0",
         "cloud-sql-python-connector[asyncpg]>=1.18,<2.0",
         "google-auth>=2.35,<3.0",
+        "pgvector>=0.3,<1.0",
         "pydantic-settings>=2.6,<3.0",
         "sqlalchemy[asyncio]>=2.0.36,<3.0",
     )

@@ -8,8 +8,8 @@ Workload Identity Provider condition restricts tokens to:
     app_name=cicero-backend, function_name=fastapi_app
 """
 from __future__ import annotations
+
 import json
-import uuid
 
 import modal
 

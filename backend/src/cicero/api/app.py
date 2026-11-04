@@ -5,10 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from cicero import __version__
+from cicero.api.routes.agents import router as agents_router
 from cicero.api.routes.cases import router as cases_router
+from cicero.api.routes.documents import router as documents_router
+from cicero.api.routes.evidence import router as evidence_router
 from cicero.config import Settings, get_settings
 from cicero.db.connection import DatabaseManager
 from cicero.models.gateway import ModelGateway
+from cicero.storage.manager import StorageManager
 
 
 def create_app(
@@ -19,6 +23,7 @@ def create_app(
     """Application factory used by local development, tests, and Modal."""
     settings = settings or get_settings()
     database_manager = DatabaseManager(settings)
+    storage_manager = StorageManager(settings)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -29,6 +34,7 @@ def create_app(
             yield
         finally:
             await database_manager.close()
+            storage_manager.close()
 
     application = FastAPI(
         title=settings.app_name,
@@ -53,7 +59,11 @@ def create_app(
     application.state.settings = settings
     application.state.model_gateway = model_gateway or ModelGateway.from_settings(settings)
     application.state.database_manager = database_manager
+    application.state.storage_manager = storage_manager
     application.include_router(cases_router)
+    application.include_router(documents_router)
+    application.include_router(evidence_router)
+    application.include_router(agents_router)
 
     @application.get("/", tags=["system"])
     async def root() -> dict[str, str]:

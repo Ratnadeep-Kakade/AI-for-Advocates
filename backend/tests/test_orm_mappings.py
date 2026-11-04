@@ -1,5 +1,5 @@
-from cicero.db.base import Base
 import cicero.db.models  # noqa: F401 - registers all mapped tables
+from cicero.db.base import Base
 
 
 def test_all_existing_tables_are_mapped() -> None:
@@ -15,11 +15,14 @@ def test_all_existing_tables_are_mapped() -> None:
         "documents.document_processing_runs",
         "documents.document_extractions",
         "documents.document_chunks",
+        "agents.executions",
+        "agents.execution_tasks",
+        "agents.agent_results",
     }
 
 
 def test_all_mapped_tables_have_primary_keys() -> None:
-    assert len(Base.metadata.tables) == 11
+    assert len(Base.metadata.tables) == 14
     assert all(table.primary_key.columns for table in Base.metadata.tables.values())
 
 
@@ -47,5 +50,8 @@ def test_document_chunk_mapping_keeps_existing_fields() -> None:
         "organization_id", "chunk_index", "page_start", "page_end",
         "start_char", "end_char", "content", "token_count",
         "chunking_version", "created_at",
+        # Added by migration 20261104_0002 (legal RAG).
+        "embedding", "embedding_text", "parent_chunk_key", "chunk_type",
+        "section_path", "legal_identifiers", "chunk_metadata", "search_vector",
     }
     assert set(chunks.columns.keys()) == expected

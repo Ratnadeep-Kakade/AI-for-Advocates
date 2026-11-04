@@ -47,10 +47,10 @@ async def cloudsql_smoke_test():
         result = await manager.diagnostics()
         print("CLOUD SQL DIAGNOSTICS:", result, flush=True)
         response = {
-    	        "status": "SUCCESS",
-    	        "database": result["database_name"],
-    	        "user": result["database_user"],
-   	        "server": result["server_version"],
+            "status": "SUCCESS",
+            "database": result["database_name"],
+            "user": result["database_user"],
+            "server": result["server_version"],
         }
         print("CONNECTION TEST RESULT:", response, flush=True)
         return response

@@ -26,7 +26,14 @@ def _jwt_expiration(token: str) -> int | None:
         )
         expiration = payload.get("exp")
         return int(expiration) if expiration is not None else None
-    except (IndexError, ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError, binascii.Error):
+    except (
+        IndexError,
+        ValueError,
+        TypeError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        binascii.Error,
+    ):
         return None
 
 

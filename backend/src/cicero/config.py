@@ -46,16 +46,22 @@ class Settings(BaseSettings):
     orchestrator_provider: ProviderName = "meta"
     orchestrator_model: str = "muse-spark-1.3"
 
-    document_intelligence_provider: ProviderName = "mock"
-    document_intelligence_model: str = "deepseek-r1-distill-llama-70b"
-    legal_researcher_provider: ProviderName = "mock"
-    legal_researcher_model: str = "deepseek-r1-distill-llama-70b"
-    argument_provider: ProviderName = "mock"
-    argument_model: str = "deepseek-r1-distill-llama-70b"
-    counterargument_provider: ProviderName = "mock"
-    counterargument_model: str = "deepseek-r1-distill-llama-70b"
-    evaluator_provider: ProviderName = "mock"
-    evaluator_model: str = "deepseek-r1-distill-llama-70b"
+    # Document Intelligence runs on Muse Spark, fed by the RAG evidence pack.
+    document_intelligence_provider: ProviderName = "meta"
+    document_intelligence_model: str = "muse-spark-1.3"
+    # Demo default: all roles on Muse Spark so the full agent flow runs
+    # end-to-end today. The four specialists move to DeepSeek on the A100
+    # vLLM service purely by configuration (CICERO_<ROLE>_PROVIDER=
+    # vllm_modal, CICERO_<ROLE>_MODEL=deepseek-r1-distill-llama-70b,
+    # CICERO_VLLM_BASE_URL=...) once cicero-llama-inference is deployed.
+    legal_researcher_provider: ProviderName = "meta"
+    legal_researcher_model: str = "muse-spark-1.3"
+    argument_provider: ProviderName = "meta"
+    argument_model: str = "muse-spark-1.3"
+    counterargument_provider: ProviderName = "meta"
+    counterargument_model: str = "muse-spark-1.3"
+    evaluator_provider: ProviderName = "meta"
+    evaluator_model: str = "muse-spark-1.3"
 
     model_timeout_seconds: float = Field(default=300.0, gt=0, le=1800)
     model_max_retries: int = Field(default=2, ge=0, le=5)
@@ -79,7 +85,36 @@ class Settings(BaseSettings):
     gcs_bucket_name: str = "cicero-legal-documents-1575"
     gcs_upload_url_expiry_seconds: int = Field(default=900, ge=60, le=3600)
     gcs_download_url_expiry_seconds: int = Field(default=300, ge=60, le=3600)
-    gcs_max_file_size_bytes: int = Field(default=50 * 1024 * 1024, ge=1)
+    # 500-600 page legal PDFs (especially scans) routinely exceed 50 MiB.
+    gcs_max_file_size_bytes: int = Field(default=200 * 1024 * 1024, ge=1)
+    # Pub/Sub topic used to dispatch registered document versions to Cloud Run.
+    pubsub_document_topic: str | None = None
+    rag_worker_url: str | None = None
+    # Gemini is used only as the Google Search grounding intermediary for the
+    # Legal Researcher (DeepSeek reasons over the collected sources).
+    gemini_api_key: SecretStr | None = Field(
+        default=None, validation_alias="CICERO_GEMINI_API_KEY", repr=False
+    )
+    gemini_model: str = "gemini-2.5-flash"
+    # "auto" lets the embedding/reranking stack pick CUDA when available
+    # (Modal T4 worker) and CPU otherwise (local/Cloud Run fallback).
+    rag_device: str = "auto"
+    # Ingestion parser: "pdfplumber" (default, lightweight line extraction —
+    # completes in seconds on digital PDFs and cannot OOM the worker) or
+    # "docling" (full layout/OCR pipeline; needs the large-memory worker).
+    rag_parser_mode: str = "pdfplumber"
+    # Cross-encoder rejection threshold. BGE reranker sigmoid scores on
+    # legal text are low in absolute terms; 0.22 (the prototype default)
+    # rejected every candidate in live testing. Evidence is still
+    # quote-validated downstream, so a low floor is safe.
+    rag_rerank_threshold: float = 0.005
+    # Must stay below the 3600s Modal/Cloud Run ingestion ceiling.
+    rag_lease_minutes: int = Field(default=50, ge=5, le=120)
+    pubsub_push_audience: str | None = None
+    pubsub_push_service_account: str | None = None
+    rag_service_token: SecretStr | None = Field(
+        default=None, validation_alias="CICERO_RAG_SERVICE_TOKEN", repr=False
+    )
 
     # Workload Identity Federation settings. These values are identifiers, not secrets.
     database_wif_project_number: str | None = None

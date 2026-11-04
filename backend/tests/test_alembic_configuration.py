@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
-from cicero.db.base import Base
 import cicero.db.models  # noqa: F401
+from cicero.db.base import Base
 
 
-def test_all_eleven_existing_tables_are_registered() -> None:
+def test_all_existing_tables_are_registered() -> None:
     expected = {
         ("auth", "users"),
         ("auth", "organizations"),
@@ -20,6 +19,9 @@ def test_all_eleven_existing_tables_are_registered() -> None:
         ("documents", "document_processing_runs"),
         ("documents", "document_extractions"),
         ("documents", "document_chunks"),
+        ("agents", "executions"),
+        ("agents", "execution_tasks"),
+        ("agents", "agent_results"),
     }
     actual = {(table.schema, table.name) for table in Base.metadata.tables.values()}
     assert actual == expected

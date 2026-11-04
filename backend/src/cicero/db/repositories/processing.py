@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, Iterable
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -13,7 +14,6 @@ from cicero.db.models.documents import (
     DocumentProcessingRun,
 )
 from cicero.db.repositories.base import BaseRepository
-
 
 PROCESSING_STATUSES = frozenset({"pending", "processing", "completed", "failed"})
 

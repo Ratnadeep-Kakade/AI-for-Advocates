@@ -1,10 +1,9 @@
 """Regression tests for timezone-aware timestamps in existing ORM mappings."""
 
-import cicero.db.models  # noqa: F401
 from sqlalchemy import DateTime
 
+import cicero.db.models  # noqa: F401
 from cicero.db.base import Base
-
 
 EXPECTED_TIMEZONE_AWARE_COLUMNS = {
     "auth.organization_members.joined_at",
@@ -24,6 +23,12 @@ EXPECTED_TIMEZONE_AWARE_COLUMNS = {
     "documents.document_versions.created_at",
     "documents.documents.created_at",
     "documents.documents.updated_at",
+    "agents.executions.created_at",
+    "agents.executions.updated_at",
+    "agents.executions.completed_at",
+    "agents.execution_tasks.started_at",
+    "agents.execution_tasks.completed_at",
+    "agents.agent_results.created_at",
 }
 
 

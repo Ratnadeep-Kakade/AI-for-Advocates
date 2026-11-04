@@ -62,7 +62,16 @@ export default function MessageView({ m, chatTitle, caseTitle, onSources }: Prop
     <div>
       {m.trace && m.trace.length > 0 && <AgentTrace trace={m.trace} streaming={streaming && !m.content} />}
       {streaming && !m.content && !m.trace?.length && (
-        <div className="flex gap-1 py-2" aria-label="Working"><span className="dot h-2 w-2 rounded-full bg-muted" /><span className="dot h-2 w-2 rounded-full bg-muted" /><span className="dot h-2 w-2 rounded-full bg-muted" /></div>
+        <div className="flex items-center gap-2 py-2 text-sm text-muted" aria-label="Thinking">
+          <span>Thinking</span>
+          <span className="flex gap-1"><span className="dot h-1.5 w-1.5 rounded-full bg-muted" /><span className="dot h-1.5 w-1.5 rounded-full bg-muted" /><span className="dot h-1.5 w-1.5 rounded-full bg-muted" /></span>
+        </div>
+      )}
+      {streaming && !m.content && !!m.trace?.length && (
+        <div className="flex items-center gap-2 py-1 text-sm text-muted" aria-label="Thinking">
+          <span>Thinking</span>
+          <span className="flex gap-1"><span className="dot h-1.5 w-1.5 rounded-full bg-muted" /><span className="dot h-1.5 w-1.5 rounded-full bg-muted" /><span className="dot h-1.5 w-1.5 rounded-full bg-muted" /></span>
+        </div>
       )}
       {m.content && (
         <div className="memo">

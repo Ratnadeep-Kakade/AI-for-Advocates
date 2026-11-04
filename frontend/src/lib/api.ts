@@ -1,5 +1,5 @@
 import { DEFAULT_MODELS } from "../types";
-import type { Case, CaseIntel, ChatRequest, ModelOption, StreamEvent } from "../types";
+import type { AgentId, Case, CaseIntel, ChatRequest, ModelOption, StreamEvent } from "../types";
 import { mockAnalyze, mockStream } from "./mock";
 
 const API = ((import.meta.env.VITE_API_URL as string | undefined) ?? "").replace(/\/$/, "");
@@ -87,47 +87,216 @@ export async function createCaseRemote(input: {
  * POST /api/chat/stream  ->  text/event-stream
  * Each frame:   data: {"type":"token","text":"..."}\n\n   (see StreamEvent in types.ts)
  */
+interface ExecutionTaskState {
+  task_id: string;
+  agent_id: string;
+  status: string;
+  depends_on: string[];
+}
+
+interface ExecutionDetail {
+  execution_id: string;
+  status: string;
+  final_response: string | null;
+  error: string | null;
+  clarification_questions: string[];
+  tasks: ExecutionTaskState[];
+  results: Record<
+    string,
+    {
+      agent_id: string;
+      status: string;
+      validation_status: string;
+      output_data: Record<string, unknown>;
+      evidence_references: string[];
+    }
+  >;
+}
+
+const AGENT_ID_MAP: Record<string, AgentId> = {
+  document_intelligence: "analyzer",
+  legal_researcher: "researcher",
+  argument: "argument",
+  counterargument: "counterargument",
+  evaluator: "evaluator",
+  orchestrator: "orchestrator",
+};
+
+const AGENT_LABEL: Record<string, string> = {
+  document_intelligence: "Document Intelligence",
+  legal_researcher: "Legal Researcher",
+  argument: "Argument Agent",
+  counterargument: "Counterargument Agent",
+  evaluator: "Evaluator",
+};
+
+function abortError(): DOMException {
+  return new DOMException("Aborted", "AbortError");
+}
+
+/**
+ * Real backend chat: start a multi-agent execution and fold poll updates into
+ * the same StreamEvent stream the UI already renders (trace, evidence, final
+ * token content). There is no SSE endpoint; executions are DB-backed.
+ */
 export async function streamChat(req: ChatRequest, onEvent: (e: StreamEvent) => void, signal: AbortSignal) {
   if (USE_MOCK) return mockStream(req, onEvent, signal);
-  const res = await fetch(`${API}/api/chat/stream`, {
+  if (!req.case_id) throw new Error("Select a case before running an analysis.");
+  const createRes = await fetch(`${API}/api/cases/${req.case_id}/executions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-    body: JSON.stringify(req),
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ user_request: req.prompt }),
     signal,
   });
-  if (!res.ok || !res.body) throw new Error(`Backend returned ${res.status} ${res.statusText}`);
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = "";
+  if (!createRes.ok) throw await readApiError(createRes, "Could not start the analysis");
+  const created = (await createRes.json()) as { execution_id: string; status: string };
+  onEvent({ type: "execution", executionId: created.execution_id });
+
+  const seenTaskStatus = new Map<string, string>();
+  const seenEvidence = new Set<string>();
   for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-    let i: number;
-    while ((i = buf.indexOf("\n\n")) >= 0) {
-      const frame = buf.slice(0, i);
-      buf = buf.slice(i + 2);
-      const data = frame
-        .split("\n")
-        .filter((l) => l.startsWith("data:"))
-        .map((l) => l.slice(5).trim())
-        .join("\n");
-      if (data) onEvent(JSON.parse(data) as StreamEvent);
+    if (signal.aborted) throw abortError();
+    await new Promise((r) => setTimeout(r, 3000));
+    if (signal.aborted) throw abortError();
+    const res = await fetch(`${API}/api/cases/${req.case_id}/executions/${created.execution_id}`, {
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    if (!res.ok) throw await readApiError(res, "Could not load execution status");
+    const detail = (await res.json()) as ExecutionDetail;
+
+    for (const task of detail.tasks) {
+      if (seenTaskStatus.get(task.task_id) === task.status) continue;
+      seenTaskStatus.set(task.task_id, task.status);
+      const agent = AGENT_ID_MAP[task.agent_id] ?? "orchestrator";
+      const label = AGENT_LABEL[task.agent_id] ?? task.agent_id;
+      if (task.status === "running") {
+        onEvent({ type: "agent_start", agent, text: `${label} running` });
+      } else if (task.status === "completed" || task.status === "partial" || task.status === "failed") {
+        onEvent({ type: "step", agent, text: `${label} ${task.status}` });
+      }
+    }
+
+    if (detail.status === "waiting_for_input") {
+      const questions = detail.clarification_questions.length
+        ? detail.clarification_questions.map((q) => `- ${q}`).join("\n")
+        : "Could you clarify your request?";
+      onEvent({ type: "token", text: `I need a bit more information before I can run this analysis:\n${questions}` });
+      onEvent({ type: "done" });
+      return;
+    }
+    if (detail.status === "failed") {
+      throw new Error(detail.error || "The analysis execution failed.");
+    }
+    if (detail.status === "completed") {
+      for (const result of Object.values(detail.results)) {
+        const items = (result.output_data?.evidence_items ?? []) as Array<Record<string, unknown>>;
+        for (const item of items) {
+          const key = String(item.key ?? "");
+          if (!key || seenEvidence.has(key)) continue;
+          seenEvidence.add(key);
+          onEvent({
+            type: "evidence",
+            evidence: {
+              id: key,
+              kind: "document",
+              title: String(item.clause_label || item.filename || "Case document"),
+              authority: "case-document",
+              verification: "verified",
+              passage: String(item.full_quote ?? item.quote ?? ""),
+              source: `${String(item.filename ?? "")} · p.${String(item.page ?? "")}`,
+            },
+          });
+        }
+      }
+      if (detail.final_response) onEvent({ type: "token", text: detail.final_response });
+      onEvent({ type: "done" });
+      return;
     }
   }
 }
 
-/** POST /api/cases/{case_id}/documents (multipart, field "file") -> { id } */
-export async function uploadDocument(caseId: string, file: File): Promise<{ id: string }> {
+export interface ApiDocument {
+  document_id: string;
+  case_id: string;
+  title: string;
+  document_type: string | null;
+  status: string;
+  version_id: string;
+  version_number: number;
+  original_filename: string;
+  mime_type: string;
+  file_size: number;
+  processing_run_id: string;
+  processing_status: string;
+}
+
+const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+function contentTypeFor(file: File): string {
+  if (file.type) return file.type;
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".docx")) return DOCX_MIME;
+  return "application/octet-stream";
+}
+
+/**
+ * Direct-to-GCS upload (backend-issued signed URL):
+ * POST .../documents/upload-url -> PUT file to GCS -> POST .../documents/complete.
+ * The file bytes never pass through the Modal backend.
+ */
+export async function uploadDocument(
+  caseId: string,
+  file: File
+): Promise<{ id: string; processingStatus: string }> {
   if (USE_MOCK) {
     await new Promise((r) => setTimeout(r, 900));
-    return { id: crypto.randomUUID() };
+    return { id: crypto.randomUUID(), processingStatus: "completed" };
   }
-  const body = new FormData();
-  body.append("file", file);
-  const res = await fetch(`${API}/api/cases/${caseId}/documents`, { method: "POST", body });
-  if (!res.ok) throw new Error(`Upload failed (${res.status})`);
-  return res.json();
+  const contentType = contentTypeFor(file);
+  const urlRes = await fetch(`${API}/api/cases/${caseId}/documents/upload-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ filename: file.name, content_type: contentType, file_size: file.size }),
+  });
+  if (!urlRes.ok) throw await readApiError(urlRes, "Could not start the upload");
+  const grant = (await urlRes.json()) as {
+    document_id: string;
+    version_id: string;
+    upload_url: string;
+    method: string;
+    required_headers: Record<string, string>;
+  };
+  const putRes = await fetch(grant.upload_url, {
+    method: grant.method || "PUT",
+    headers: grant.required_headers,
+    body: file,
+  });
+  if (!putRes.ok) throw new Error(`Storage upload failed (${putRes.status})`);
+  const completeRes = await fetch(`${API}/api/cases/${caseId}/documents/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      document_id: grant.document_id,
+      version_id: grant.version_id,
+      filename: file.name,
+      content_type: contentType,
+    }),
+  });
+  if (!completeRes.ok) throw await readApiError(completeRes, "Could not register the upload");
+  const doc = (await completeRes.json()) as ApiDocument;
+  return { id: doc.document_id, processingStatus: doc.processing_status };
+}
+
+/** GET /api/cases/{case_id}/documents -> registered documents with processing status. */
+export async function fetchDocuments(caseId: string): Promise<ApiDocument[]> {
+  if (USE_MOCK) return [];
+  const res = await fetch(`${API}/api/cases/${caseId}/documents`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw await readApiError(res, "Could not load documents");
+  return (await res.json()) as ApiDocument[];
 }
 
 /** POST /api/cases/{case_id}/analyze -> CaseIntel */

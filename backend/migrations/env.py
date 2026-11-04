@@ -9,9 +9,9 @@ from alembic import context
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from cicero.db.base import Base
 # Importing the package registers all existing ORM tables on Base.metadata.
 import cicero.db.models  # noqa: F401
+from cicero.db.base import Base
 
 config = context.config
 

@@ -4,6 +4,11 @@ Importing this package registers all mapped tables on ``Base.metadata``.
 These mappings describe existing tables; they do not create or alter them.
 """
 
+from cicero.db.models.agents import (
+    AgentResultRecord,
+    ExecutionRecord,
+    ExecutionTaskRecord,
+)
 from cicero.db.models.auth import Organization, OrganizationMember, User
 from cicero.db.models.cases import Case, CaseMember, CaseParty
 from cicero.db.models.documents import (
@@ -15,6 +20,7 @@ from cicero.db.models.documents import (
 )
 
 __all__ = [
+    "AgentResultRecord",
     "Case",
     "CaseMember",
     "CaseParty",
@@ -23,6 +29,8 @@ __all__ = [
     "DocumentExtraction",
     "DocumentProcessingRun",
     "DocumentVersion",
+    "ExecutionRecord",
+    "ExecutionTaskRecord",
     "Organization",
     "OrganizationMember",
     "User",

@@ -1,7 +1,6 @@
 """Verify Cloud SQL connectivity using the application's configured credentials."""
 
 import asyncio
-import json
 
 from cicero.config import get_settings
 from cicero.db.connection import DatabaseConfigurationError, DatabaseManager

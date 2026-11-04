@@ -5,12 +5,13 @@ from collections.abc import Iterable
 from typing import Any
 
 from sqlalchemy import Connection, MetaData, inspect
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CheckConstraint, ForeignKeyConstraint, Index, UniqueConstraint
 
 # Importing the package registers all ORM models on Base.metadata.
 import cicero.db.models  # noqa: F401
 from cicero.db.base import Base
+
+
 def test_all_existing_models_are_registered():
     expected = {
         "auth.users",
@@ -26,6 +27,8 @@ def test_all_existing_models_are_registered():
         "documents.document_chunks",
     }
     assert set(Base.metadata.tables.keys()) == expected
+
+
 CICERO_SCHEMAS = frozenset(
     {
         "auth",
@@ -50,7 +53,7 @@ def _normalize_sql(value: str | None) -> str | None:
         "",
         normalized,
     )
-    normalized = re.sub(r'\s+', '', normalized)
+    normalized = re.sub(r"\s+", "", normalized)
     # PostgreSQL may wrap an otherwise identical default in outer parentheses.
     while normalized.startswith("(") and normalized.endswith(")"):
         depth = 0
@@ -121,7 +124,9 @@ def _expected_index_signature(index: Index, dialect: Any) -> tuple[Any, ...]:
         else:
             expressions.append(_normalize_sql(_compile_sql_expression(expression, dialect)) or "")
     where = index.dialect_options["postgresql"].get("where")
-    where_sql = _normalize_sql(_compile_sql_expression(where, dialect)) if where is not None else None
+    where_sql = (
+        _normalize_sql(_compile_sql_expression(where, dialect)) if where is not None else None
+    )
     return (index.name, bool(index.unique), tuple(columns), tuple(expressions), where_sql)
 
 
@@ -233,11 +238,16 @@ def build_schema_parity_report(
             expected_pk_columns = tuple(column.name for column in table.primary_key.columns)
             actual_pk_columns = tuple(actual_pk.get("constrained_columns") or ())
             if expected_pk_columns != actual_pk_columns:
-                issue(scope, "primary_key_mismatch", "primary_key", expected_pk_columns, actual_pk_columns)
+                issue(
+                    scope,
+                    "primary_key_mismatch",
+                    "primary_key",
+                    expected_pk_columns,
+                    actual_pk_columns,
+                )
 
             expected_fks = _sorted_signatures(
-                _expected_fk_signature(constraint)
-                for constraint in table.foreign_key_constraints
+                _expected_fk_signature(constraint) for constraint in table.foreign_key_constraints
             )
             actual_fks = _sorted_signatures(
                 _actual_fk_signature(foreign_key, schema)
@@ -256,7 +266,13 @@ def build_schema_parity_report(
                 for constraint in inspector.get_unique_constraints(table_name, schema=schema)
             )
             if expected_uniques != actual_uniques:
-                issue(scope, "unique_constraint_mismatch", "unique_constraints", expected_uniques, actual_uniques)
+                issue(
+                    scope,
+                    "unique_constraint_mismatch",
+                    "unique_constraints",
+                    expected_uniques,
+                    actual_uniques,
+                )
 
             expected_checks = _sorted_signatures(
                 (
@@ -271,7 +287,13 @@ def build_schema_parity_report(
                 for constraint in inspector.get_check_constraints(table_name, schema=schema)
             )
             if expected_checks != actual_checks:
-                issue(scope, "check_constraint_mismatch", "check_constraints", expected_checks, actual_checks)
+                issue(
+                    scope,
+                    "check_constraint_mismatch",
+                    "check_constraints",
+                    expected_checks,
+                    actual_checks,
+                )
 
             expected_indexes = _sorted_signatures(
                 _expected_index_signature(index, dialect) for index in table.indexes

@@ -222,15 +222,18 @@ async def test_provider_does_not_retry_bad_request() -> None:
     assert calls == 1
 
 
-def test_settings_use_mock_for_specialists_until_gpu_is_deployed() -> None:
+def test_settings_provider_allocation_matches_architecture() -> None:
+    # Demo default: every role runs on Muse Spark so the full flow works
+    # end-to-end. The four specialists move to DeepSeek/vLLM by env switch
+    # (see the next test) once cicero-llama-inference is deployed.
     settings = Settings(_env_file=None)
     assert settings.interpreter_provider == "meta"
     assert settings.orchestrator_provider == "meta"
-    assert settings.document_intelligence_provider == "mock"
-    assert settings.legal_researcher_provider == "mock"
-    assert settings.argument_provider == "mock"
-    assert settings.counterargument_provider == "mock"
-    assert settings.evaluator_provider == "mock"
+    assert settings.document_intelligence_provider == "meta"
+    assert settings.legal_researcher_provider == "meta"
+    assert settings.argument_provider == "meta"
+    assert settings.counterargument_provider == "meta"
+    assert settings.evaluator_provider == "meta"
 
 
 def test_settings_allow_provider_switch_through_environment(monkeypatch) -> None:

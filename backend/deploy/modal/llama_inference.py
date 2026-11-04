@@ -1,8 +1,11 @@
 """Serve a quantized Llama 70B model through vLLM on one Modal A100-80GB.
 
 Before deployment:
-1. Accept the applicable Llama license on Hugging Face.
-2. Set MODEL_ID to a compatible 4-bit AWQ checkpoint for the selected Llama 70B.
+1. Accept the DeepSeek model license (and bundled Llama terms) for
+   `deepseek-ai/DeepSeek-R1-Distill-Llama-70B` on Hugging Face.
+2. Set MODEL_ID to a verified 4-bit AWQ checkpoint of that model (the bf16
+   original is ~140 GB and cannot fit one A100-80GB; the AWQ weights are
+   roughly 40 GB). Verify the repo's total file size before deploying.
 3. Create the Modal Secret `cicero-llama-inference` with HF_TOKEN and
    CICERO_VLLM_API_KEY values.
 
@@ -15,7 +18,7 @@ import subprocess
 import modal
 
 APP_NAME = "cicero-llama-inference"
-MODEL_ID = "REPLACE_WITH_HF_REPO_ID_FOR_AWQ_LLAMA_70B"
+MODEL_ID = "casperhansen/deepseek-r1-distill-llama-70b-awq"
 SERVED_MODEL_NAME = "deepseek-r1-distill-llama-70b"
 QUANTIZATION = "awq"
 MAX_MODEL_LEN = 8192
@@ -72,12 +75,15 @@ class LlamaServer:
 
         if MODEL_ID.startswith("REPLACE_"):
             raise RuntimeError(
-                "Set MODEL_ID in deploy/modal/llama_inference.py to a real 4-bit AWQ Llama 70B checkpoint."
+                "Set MODEL_ID in deploy/modal/llama_inference.py to a real "
+                "4-bit AWQ Llama 70B checkpoint."
             )
 
         api_key = os.environ.get("CICERO_VLLM_API_KEY")
         if not api_key:
-            raise RuntimeError("CICERO_VLLM_API_KEY is missing from Modal Secret cicero-llama-inference.")
+            raise RuntimeError(
+                "CICERO_VLLM_API_KEY is missing from Modal Secret cicero-llama-inference."
+            )
         if not os.environ.get("HF_TOKEN"):
             raise RuntimeError("HF_TOKEN is missing from Modal Secret cicero-llama-inference.")
 

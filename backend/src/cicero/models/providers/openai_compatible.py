@@ -2,7 +2,6 @@ import asyncio
 import logging
 import random
 from collections.abc import Sequence
-from time import monotonic
 from typing import Any
 
 import httpx
@@ -164,13 +163,31 @@ class OpenAICompatibleProvider:
         message = choice["message"]
         content = message.get("content")
         if isinstance(content, list):
-            text_parts = [
-                item.get("text", "")
-                for item in content
-                if isinstance(item, dict) and item.get("type") in {"text", "output_text"}
-            ]
+            # OpenAI-compatible providers vary: text may sit under "text",
+            # "content", or "value", and part types vary ("text",
+            # "output_text", or provider-specific). Accept any textual part.
+            text_parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    text_parts.append(item)
+                elif isinstance(item, dict):
+                    for key in ("text", "content", "value"):
+                        part = item.get(key)
+                        if isinstance(part, str) and part:
+                            text_parts.append(part)
+                            break
             content = "".join(text_parts)
-        if not isinstance(content, str):
+        if isinstance(content, dict):
+            nested = content.get("text") or content.get("content")
+            content = nested if isinstance(nested, str) else None
+        if not isinstance(content, str) or not content.strip():
+            logger.warning(
+                "Provider response without usable text: message keys=%s, "
+                "content type=%s, finish_reason=%s",
+                sorted(message.keys()),
+                type(message.get("content")).__name__,
+                choice.get("finish_reason"),
+            )
             raise ValueError("Provider response did not contain text content.")
 
         raw_usage = payload.get("usage") or {}

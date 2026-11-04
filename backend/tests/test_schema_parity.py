@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-from typing import Any
-
 from sqlalchemy.dialects import postgresql
 
+import cicero.db.models  # noqa: F401 - registers all mapped tables
 from cicero.db.base import Base
 from cicero.db.schema_parity import (
     CICERO_SCHEMAS,
     _normalize_sql,
     build_schema_parity_report,
 )
-import cicero.db.models  # noqa: F401 - registers all mapped tables
 
 
 class MetadataBackedInspector:
@@ -75,7 +73,10 @@ class MetadataBackedInspector:
     def get_unique_constraints(self, table_name, schema=None):
         table = self._table(table_name, schema)
         return [
-            {"name": constraint.name, "column_names": [column.name for column in constraint.columns]}
+            {
+                "name": constraint.name,
+                "column_names": [column.name for column in constraint.columns],
+            }
             for constraint in table.constraints
             if constraint.__class__.__name__ == "UniqueConstraint"
         ]
@@ -96,7 +97,10 @@ class MetadataBackedInspector:
             column_names = []
             expressions = []
             for expression in index.expressions:
-                if getattr(expression, "name", None) and getattr(expression, "table", None) is not None:
+                if (
+                    getattr(expression, "name", None)
+                    and getattr(expression, "table", None) is not None
+                ):
                     column_names.append(expression.name)
                 else:
                     expressions.append(str(expression.compile(dialect=dialect)))
@@ -133,8 +137,8 @@ def test_schema_parity_passes_against_metadata_backed_inspector(monkeypatch) -> 
 
     assert report["status"] == "PASS"
     assert report["summary"]["schemas_checked"] == 8
-    assert report["summary"]["tables_expected"] == 11
-    assert report["summary"]["tables_compared"] == 11
+    assert report["summary"]["tables_expected"] == 14
+    assert report["summary"]["tables_compared"] == 14
     assert report["issues"] == []
     assert report["read_only"] is True
 
@@ -159,6 +163,12 @@ def test_schema_parity_reports_missing_column(monkeypatch) -> None:
 
 def test_checker_targets_only_the_eight_cicero_schemas() -> None:
     assert CICERO_SCHEMAS == {
-        "auth", "cases", "documents", "intelligence",
-        "research", "agents", "evidence", "memory",
+        "auth",
+        "cases",
+        "documents",
+        "intelligence",
+        "research",
+        "agents",
+        "evidence",
+        "memory",
     }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -8,11 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cicero.db.base import Base
 
-ModelT = TypeVar("ModelT", bound=Base)
-IdentifierT = TypeVar("IdentifierT", UUID, str, int)
 
-
-class BaseRepository(Generic[ModelT, IdentifierT]):
+class BaseRepository[ModelT: Base, IdentifierT: (UUID, str, int)]:
     """Small SQLAlchemy repository foundation.
 
     Repositories execute queries and stage changes in the supplied session. They

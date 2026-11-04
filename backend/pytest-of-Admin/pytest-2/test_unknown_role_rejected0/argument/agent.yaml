@@ -1,0 +1,11 @@
+agent_id: argument
+can_run_in_parallel: false
+capabilities:
+- Do test things
+description: Test manifest.
+inputs: []
+model_role: super_lawyer
+name: Test Agent
+outputs: []
+tools: []
+version: '1.0'

@@ -6,7 +6,6 @@ from uuid import UUID
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
-    ForeignKey,
     ForeignKeyConstraint,
     Index,
     Text,
@@ -53,8 +52,12 @@ class Case(Base):
     case_type: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
     created_by: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
 
 
 class CaseMember(Base):
@@ -84,22 +87,29 @@ class CaseMember(Base):
     organization_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
     user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'viewer'"))
-    assigned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
 
 
 class CaseParty(Base):
     __tablename__ = "case_parties"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["case_id"], ["cases.cases.case_id"],
-            name="case_parties_case_id_fkey", ondelete="CASCADE",
+            ["case_id"],
+            ["cases.cases.case_id"],
+            name="case_parties_case_id_fkey",
+            ondelete="CASCADE",
         ),
         CheckConstraint(
-            "party_position = ANY (ARRAY['claimant'::text, 'defendant'::text, 'plaintiff'::text, 'respondent'::text, 'petitioner'::text, 'opposite_party'::text, 'other'::text])",
+            "party_position = ANY (ARRAY['claimant'::text, 'defendant'::text, "
+            "'plaintiff'::text, 'respondent'::text, 'petitioner'::text, "
+            "'opposite_party'::text, 'other'::text])",
             name="case_parties_party_position_check",
         ),
         CheckConstraint(
-            "party_type = ANY (ARRAY['individual'::text, 'company'::text, 'government'::text, 'other'::text])",
+            "party_type = ANY (ARRAY['individual'::text, 'company'::text, "
+            "'government'::text, 'other'::text])",
             name="case_parties_party_type_check",
         ),
         Index("idx_case_parties_case", "case_id"),
@@ -113,4 +123,6 @@ class CaseParty(Base):
     party_name: Mapped[str] = mapped_column(Text, nullable=False)
     party_type: Mapped[str] = mapped_column(Text, nullable=False)
     party_position: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
