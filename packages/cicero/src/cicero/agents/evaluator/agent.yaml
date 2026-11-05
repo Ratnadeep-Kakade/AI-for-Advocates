@@ -1,0 +1,26 @@
+agent_id: evaluator
+name: Evaluator
+version: "1.0"
+description: >
+  Evaluates argument and counterargument output against the original evidence:
+  factual support, legal authority, citation validity, contradictions, missing
+  evidence and unsupported assumptions. Deterministic Python checks (citation
+  existence, exact quote matching) run alongside its assessment. Runs on
+  DeepSeek-R1-Distill-Llama-70B.
+capabilities:
+  - Evaluate evidentiary support
+  - Detect unsupported claims
+  - Assess argument strength
+model_role: evaluator
+tools:
+  - retrieve_case_evidence
+  - verify_citations
+inputs:
+  - case_id
+  - case_intelligence_reference
+  - research_findings_reference
+  - argument_output_reference
+  - counterargument_output_reference
+outputs:
+  - evaluation
+can_run_in_parallel: false

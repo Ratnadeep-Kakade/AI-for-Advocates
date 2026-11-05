@@ -1,0 +1,15 @@
+[importlinter]
+root_package = cicero
+include_external_packages = True
+
+[importlinter:contract:core-stays-light]
+name = Core must not depend on web, GPU, or Modal SDKs
+type = forbidden
+source_modules = cicero
+forbidden_modules = fastapi, torch, modal, docling
+
+[importlinter:contract:agents-no-direct-data-access]
+name = Agents use tools and gateway, never data layers or direct providers
+type = forbidden
+source_modules = cicero.agents
+forbidden_modules = cicero.persistence, cicero.storage, cicero.llm.providers
