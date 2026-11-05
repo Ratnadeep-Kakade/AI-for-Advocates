@@ -1,0 +1,14 @@
+workflows:
+  full_legal_analysis:
+    steps:
+      - interpret
+      - plan
+      - parallel_discovery:
+          - legal_research
+          - document_intelligence
+      - parallel_deliberation:
+          - argument
+          - counterargument
+      - validate_citations
+      - evaluate
+      - synthesize

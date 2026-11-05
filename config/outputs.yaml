@@ -1,0 +1,9 @@
+templates:
+  legal_memorandum:
+    sections:
+      - Questions Presented
+      - Brief Answers
+      - Statement of Facts
+      - Legal Argument
+      - Counterargument Analysis
+      - Conclusion & Risk Assessment

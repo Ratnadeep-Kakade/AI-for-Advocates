@@ -1,0 +1,6 @@
+platform:
+  default_jurisdiction: "US_FEDERAL"
+  citation_standard: "BLUEBOOK"
+  storage_backend: "GCS"
+  vector_dim: 1024
+  embedding_model: "BAAI/bge-m3"
