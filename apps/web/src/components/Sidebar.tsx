@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { NavLink, useMatch, useNavigate } from "react-router-dom";
-import { Briefcase, CalendarClock, Moon, Plus, Scale, Search, Settings, Sun, Trash2 } from "lucide-react";
+import { Briefcase, CalendarClock, Moon, Pencil, Plus, Scale, Search, Settings, Sun, Trash2 } from "lucide-react";
 import { useStore } from "../store";
 import { cx, daysUntil } from "../lib/util";
 
 export default function Sidebar() {
   const nav = useNavigate();
   const activeChat = useMatch("/chat/:chatId")?.params.chatId;
-  const { chats, cases, deadlines, sidebarOpen, setSidebar, deleteChat, theme, setTheme } = useStore();
+  const { chats, cases, deadlines, sidebarOpen, setSidebar, deleteChat, renameChat, updateCase, theme, setTheme } = useStore();
   const [q, setQ] = useState("");
   const close = () => setSidebar(false);
   const soon = deadlines.filter((d) => !d.done && daysUntil(d.date) <= 7).length;
@@ -25,7 +25,7 @@ export default function Sidebar() {
       <aside className={cx("fixed inset-y-0 left-0 z-40 flex w-72 shrink-0 flex-col border-r border-line bg-sunk transition-transform md:static md:translate-x-0", sidebarOpen ? "translate-x-0" : "-translate-x-full")}>
         <div className="flex items-center gap-2 px-4 pb-2 pt-4">
           <Scale size={20} className="text-accent" />
-          <span className="font-serif text-xl font-semibold">Counsel</span>
+          <span className="font-serif text-xl font-semibold">Cicero</span>
         </div>
 
         <div className="space-y-1 px-3">
@@ -43,8 +43,22 @@ export default function Sidebar() {
           <div className="mt-4 px-3">
             <p className="px-2.5 pb-1 text-xs text-muted">Active cases</p>
             {cases.filter((c) => c.status === "active").slice(0, 4).map((c) => (
-              <NavLink key={c.id} to={`/cases/${c.id}`} onClick={close} className={link}>
-                <span className="truncate">{c.title}</span>
+              <NavLink key={c.id} to={`/cases/${c.id}`} onClick={close} className={(s) => cx(link(s), "group")}>
+                <span className="flex-1 truncate">{c.title}</span>
+                <button
+                  type="button"
+                  aria-label={`Rename case ${c.title}`}
+                  title="Rename case"
+                  className="rounded p-1 text-muted opacity-0 group-hover:opacity-100 hover:text-accent"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const next = prompt("Enter new case title:", c.title);
+                    if (next && next.trim()) updateCase(c.id, { title: next.trim() });
+                  }}
+                >
+                  <Pencil size={13} />
+                </button>
               </NavLink>
             ))}
           </div>
@@ -61,16 +75,38 @@ export default function Sidebar() {
             {list.map((c) => (
               <NavLink key={c.id} to={`/chat/${c.id}`} onClick={close} className={(s) => cx(link(s), "group")}>
                 <span className="flex-1 truncate">{c.title}</span>
-                <button
-                  aria-label={`Delete chat ${c.title}`}
-                  className="rounded p-1 text-muted opacity-0 hover:text-bad focus:opacity-100 group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (confirm("Delete this chat?")) { deleteChat(c.id); if (activeChat === c.id) nav("/"); }
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                  <button
+                    type="button"
+                    aria-label={`Rename chat ${c.title}`}
+                    title="Rename chat"
+                    className="rounded p-1 text-muted hover:text-accent"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const next = prompt("Enter new chat title:", c.title);
+                      if (next && next.trim()) renameChat(c.id, next.trim());
+                    }}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete chat ${c.title}`}
+                    title="Delete chat"
+                    className="rounded p-1 text-muted hover:text-bad"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (confirm(`Delete "${c.title}"? Associated records will be permanently removed.`)) {
+                        deleteChat(c.id);
+                        if (activeChat === c.id) nav("/");
+                      }
+                    }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </NavLink>
             ))}
           </div>

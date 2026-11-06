@@ -52,6 +52,7 @@ image = (
         "FlagEmbedding>=1.3.5,<2.0",
         "dateparser>=1.2.0,<2.0",
         "reportlab>=4.2,<5.0",
+        "requests>=2.31,<3.0",
         "uvicorn[standard]>=0.30,<1.0",
     )
     .add_local_python_source("cicero")
@@ -168,6 +169,15 @@ def fastapi_app():
         except Exception as exc:
             raise HTTPException(status_code=503, detail="Cloud SQL is unavailable") from exc
         return {"service": "cicero-rag-worker", "status": "ready"}
+
+    @app.post("/ingest")
+    async def ingest(
+        payload: dict[str, Any],
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        verify_service_token(authorization)
+        await process_document.spawn.aio(payload)
+        return {"ok": True, "accepted": True}
 
     @app.post("/pubsub/push")
     async def pubsub_push(

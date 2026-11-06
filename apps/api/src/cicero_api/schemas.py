@@ -22,6 +22,27 @@ class CaseCreate(BaseModel):
         return normalized
 
 
+class CaseUpdate(BaseModel):
+    """Fields accepted when updating/renaming a case."""
+
+    case_name: str | None = Field(default=None, max_length=200)
+    case_description: str | None = Field(default=None, max_length=10000)
+    jurisdiction: str | None = Field(default=None, max_length=100)
+    court: str | None = Field(default=None, max_length=300)
+    case_type: str | None = Field(default=None, max_length=100)
+    status: str | None = Field(default=None, max_length=50)
+
+    @field_validator("case_name")
+    @classmethod
+    def case_name_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("case_name must contain non-whitespace characters")
+        return normalized
+
+
 class CaseRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

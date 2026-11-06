@@ -56,7 +56,7 @@ database_secret = modal.Secret.from_name(
 )
 @modal.asgi_app()
 def fastapi_app():
-    from cicero.api.app import create_app
+    from cicero_api.main import create_app
 
     return create_app()
 
@@ -67,17 +67,12 @@ def fastapi_app():
     timeout=1500,
 )
 async def run_execution(execution_id: str, organization_id: str, case_id: str) -> None:
-    """Run one persisted multi-agent execution to a terminal state.
-
-    Spawned by POST /executions: Starlette BackgroundTasks do not survive
-    Modal's ASGI request lifecycle, and the full agent chain takes minutes,
-    so it gets a dedicated function with its own timeout.
-    """
+    """Run one persisted multi-agent execution to a terminal state."""
     from uuid import UUID
 
-    from cicero.api.app import create_app
-    from cicero.api.routes.agents import _run_execution
-    from cicero.registry.loader import load_registry
+    from cicero_api.main import create_app
+    from cicero_api.routes.agents import _run_execution
+    from cicero.harness.registry_loader import load_registry
 
     application = create_app()
     application.state.capability_registry = load_registry()

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Loader2, Plus, Sparkles, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, Loader2, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import { useStore } from "../store";
-import type { CaseIntel } from "../types";
-import { analyzeCase } from "../lib/api";
+import type { CaseDoc, CaseIntel } from "../types";
+import { analyzeCase, deleteDocumentRemote, fetchCases, getCaseIntel } from "../lib/api";
 import { ingestFiles, syncCaseDocuments } from "../lib/ingest";
 import { cx, fmtDate, fmtSize, fmtTime } from "../lib/util";
 import DeadlineList from "../components/DeadlineList";
@@ -17,6 +17,46 @@ const TABS = [
   { id: "audit", label: "Audit trail" },
 ] as const;
 
+function renderDocumentBadge(d: CaseDoc) {
+  const stage = d.stage || (d.status === "analyzed" ? "Processed" : d.status === "failed" ? "Failed" : "Chunking");
+  if (d.status === "analyzed" || stage === "Processed" || stage === "Ready") {
+    return (
+      <Badge tone="ok">
+        <CheckCircle2 size={11} className="mr-1 text-ok inline" /> Processed
+      </Badge>
+    );
+  }
+  if (d.status === "failed" || stage === "Failed") {
+    return <Badge tone="bad">Failed</Badge>;
+  }
+  if (stage === "Uploading") {
+    return (
+      <Badge tone="warn">
+        <Loader2 size={11} className="animate-spin mr-1 inline" /> Uploading...
+      </Badge>
+    );
+  }
+  if (stage === "Chunking" || stage === "Parsing") {
+    return (
+      <Badge tone="warn">
+        <Loader2 size={11} className="animate-spin mr-1 inline" /> Chunking...
+      </Badge>
+    );
+  }
+  if (stage === "Embedding") {
+    return (
+      <Badge tone="accent">
+        <Loader2 size={11} className="animate-spin mr-1 inline text-accent" /> Embedding...
+      </Badge>
+    );
+  }
+  return (
+    <Badge tone="warn">
+      <Loader2 size={11} className="animate-spin mr-1 inline" /> {stage}...
+    </Badge>
+  );
+}
+
 function List({ title, items }: { title: string; items: string[] }) {
   return (
     <section className="rounded-xl border border-line bg-panel p-4">
@@ -28,14 +68,20 @@ function List({ title, items }: { title: string; items: string[] }) {
 
 function Intel({ intel }: { intel: CaseIntel }) {
   return (
-    <div className="grid gap-3 md:grid-cols-2">
+    <div className="flex flex-col gap-3">
+      {intel.summary && (
+        <section className="rounded-xl border border-line bg-panel p-4">
+          <h3 className="mb-2 font-serif text-base font-semibold">Executive summary</h3>
+          <p className="text-sm leading-relaxed text-ink">{intel.summary}</p>
+        </section>
+      )}
       <List title="Parties" items={intel.parties.map((p) => (p.role ? `${p.name} (${p.role})` : p.name))} />
       <List title="Important dates" items={intel.important_dates.map((d) => `${fmtDate(d.date)}: ${d.label}`)} />
       <List title="Contractual obligations" items={intel.contractual_obligations} />
       <List title="Material facts" items={intel.material_facts} />
       <List title="Legal issues" items={intel.legal_issues} />
       <List title="Contradictions across documents" items={intel.contradictions} />
-      <div className="md:col-span-2"><List title="Missing information" items={intel.missing_information} /></div>
+      <List title="Missing information" items={intel.missing_information} />
     </div>
   );
 }
@@ -45,14 +91,38 @@ export default function CaseWorkspace() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
   const tab = (sp.get("tab") ?? "overview") as (typeof TABS)[number]["id"];
-  const { cases, docs, chats, updateCase, setIntel, deleteCase, removeDoc } = useStore();
+  const { cases, docs, chats, updateCase, setCases, setIntel, deleteCase, removeDoc, renameChat, deleteChat } = useStore();
   const c = cases.find((x) => x.id === caseId);
+  const [loadingCase, setLoadingCase] = useState(!c);
   const myDocs = docs.filter((d) => d.caseId === caseId);
   const myChats = chats.filter((x) => x.caseId === caseId).sort((a, b) => b.updatedAt - a.updatedAt);
   const [analyzing, setAnalyzing] = useState(false);
   const [err, setErr] = useState("");
   const [drag, setDrag] = useState(false);
   const file = useRef<HTMLInputElement>(null);
+
+  // 1. If cases are not yet loaded (e.g. direct load or hard refresh), fetch cases from backend
+  useEffect(() => {
+    if (!c && caseId) {
+      setLoadingCase(true);
+      fetchCases()
+        .then((rows) => setCases(rows))
+        .catch(() => {})
+        .finally(() => setLoadingCase(false));
+    }
+  }, [c, caseId, setCases]);
+
+  // 2. Load persisted Case Intelligence from backend if not already in store
+  useEffect(() => {
+    if (!caseId) return;
+    if (!c?.intel) {
+      getCaseIntel(caseId)
+        .then((intel) => {
+          if (intel) setIntel(caseId, intel);
+        })
+        .catch(() => {});
+    }
+  }, [caseId, c?.intel, setIntel]);
 
   useEffect(() => {
     if (!caseId) return;
@@ -82,7 +152,16 @@ export default function CaseWorkspace() {
     };
   }, [caseId]);
 
-  if (!c) return <Navigate to="/cases" replace />;
+  if (!c) {
+    if (loadingCase) {
+      return (
+        <div className="flex flex-1 items-center justify-center p-8 text-muted">
+          <Loader2 size={24} className="animate-spin mr-2" /> Loading case workspace...
+        </div>
+      );
+    }
+    return <Navigate to="/cases" replace />;
+  }
 
   async function analyze() {
     setAnalyzing(true); setErr("");
@@ -94,6 +173,17 @@ export default function CaseWorkspace() {
     <>
       <PageHeader title={c.title} sub={[c.client && `${c.client}${c.opposingParty ? ` v. ${c.opposingParty}` : ""}`, c.court, c.caseNumber, c.jurisdiction].filter(Boolean).join(", ")}>
         <Badge tone="neutral" title="Everything in this case is treated as confidential">Privileged</Badge>
+        <button
+          type="button"
+          onClick={() => {
+            const next = prompt("Enter new case title:", c.title);
+            if (next && next.trim()) updateCase(c.id, { title: next.trim() });
+          }}
+          className={btn}
+          title="Rename case"
+        >
+          <Pencil size={13} /> <span className="hidden sm:inline">Rename</span>
+        </button>
         <select aria-label="Status" className={btn} value={c.status} onChange={(e) => updateCase(c.id, { status: e.target.value as typeof c.status })}>
           <option value="active">Active</option><option value="on-hold">On hold</option><option value="closed">Closed</option>
         </select>
@@ -121,7 +211,18 @@ export default function CaseWorkspace() {
               </div>
               {c.intel ? <Intel intel={c.intel} /> : <Empty title="No case intelligence yet">Analyze the documents to extract parties, dates, obligations, facts and contradictions.</Empty>}
               <div className="pt-6">
-                <button className="text-sm text-bad hover:underline" onClick={() => { if (confirm(`Delete "${c.title}" and its documents and deadlines? Chats are kept.`)) { deleteCase(c.id); nav("/cases"); } }}>Delete this case</button>
+                <button
+                  type="button"
+                  className="text-sm text-bad hover:underline"
+                  onClick={() => {
+                    if (confirm(`Permanently delete "${c.title}" and all its documents, pgvector embeddings, and data from PostgreSQL?`)) {
+                      deleteCase(c.id);
+                      nav("/cases");
+                    }
+                  }}
+                >
+                  Delete this case
+                </button>
               </div>
             </div>
           )}
@@ -145,10 +246,21 @@ export default function CaseWorkspace() {
                   {myDocs.map((d) => (
                     <li key={d.id} className="flex items-center gap-3 px-3 py-2.5">
                       <div className="min-w-0 flex-1"><p className="truncate text-sm">{d.name}</p><p className="text-xs text-muted">{fmtSize(d.size)}, added {fmtDate(d.addedAt)}</p></div>
-                      {d.status === "processing" && <Badge tone="warn"><Loader2 size={11} className="animate-spin" /> Processing</Badge>}
-                      {d.status === "analyzed" && <Badge tone="ok">Ready</Badge>}
-                      {d.status === "failed" && <Badge tone="bad">Upload failed</Badge>}
-                      <button aria-label={`Remove ${d.name}`} className="rounded p-1 text-muted hover:text-bad" onClick={() => removeDoc(d.id)}><Trash2 size={15} /></button>
+                      {renderDocumentBadge(d)}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${d.name}`}
+                        title="Delete document and embeddings"
+                        className="rounded p-1 text-muted hover:text-bad"
+                        onClick={() => {
+                          if (confirm(`Permanently delete "${d.name}" and all its chunks and pgvector embeddings from PostgreSQL?`)) {
+                            removeDoc(d.id);
+                            deleteDocumentRemote(caseId, d.id).catch(() => {});
+                          }
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -162,7 +274,39 @@ export default function CaseWorkspace() {
             ) : (
               <ul className="divide-y divide-line rounded-xl border border-line bg-panel">
                 {myChats.map((x) => (
-                  <li key={x.id}><Link to={`/chat/${x.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-sunk"><span className="truncate">{x.title}</span><span className="ml-3 shrink-0 text-xs text-muted">{fmtTime(x.updatedAt)}</span></Link></li>
+                  <li key={x.id} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-sunk group">
+                    <Link to={`/chat/${x.id}`} className="truncate flex-1 hover:underline font-medium">
+                      {x.title}
+                    </Link>
+                    <div className="flex items-center gap-2 ml-3">
+                      <span className="shrink-0 text-xs text-muted">{fmtTime(x.updatedAt)}</span>
+                      <button
+                        type="button"
+                        aria-label={`Rename chat ${x.title}`}
+                        title="Rename chat"
+                        className="rounded p-1 text-muted opacity-0 group-hover:opacity-100 hover:text-accent"
+                        onClick={() => {
+                          const next = prompt("Enter new chat title:", x.title);
+                          if (next && next.trim()) renameChat(x.id, next.trim());
+                        }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete chat ${x.title}`}
+                        title="Delete chat"
+                        className="rounded p-1 text-muted opacity-0 group-hover:opacity-100 hover:text-bad"
+                        onClick={() => {
+                          if (confirm(`Delete "${x.title}"? Associated records will be permanently removed.`)) {
+                            deleteChat(x.id);
+                          }
+                        }}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </li>
                 ))}
               </ul>
             ))}

@@ -1,4 +1,4 @@
-# Counsel: frontend
+# Cicero: frontend
 
 React + Vite + TypeScript + Tailwind v4. Talks to the FastAPI backend on Modal.
 

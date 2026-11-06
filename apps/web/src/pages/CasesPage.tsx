@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { FileText, MessageSquare, Plus, Search } from "lucide-react";
+import { FileText, MessageSquare, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useStore } from "../store";
 import { createCaseRemote, fetchCases, USE_MOCK } from "../lib/api";
 import { daysUntil, fmtDate } from "../lib/util";
@@ -8,21 +8,20 @@ import { Badge, Empty, Field, Modal, PageHeader, btnPrimary, input } from "../co
 
 export default function CasesPage() {
   const nav = useNavigate();
-  const { cases, docs, chats, deadlines, setCases, jurisdiction } = useStore();
+  const { cases, docs, chats, deadlines, setCases, updateCase, deleteCase, jurisdiction } = useStore();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setCases([]);
+    setLoading(cases.length === 0);
     fetchCases()
       .then((rows) => { if (!cancelled) setCases(rows); })
       .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load cases"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [setCases]);
+  }, [setCases, cases.length]);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const blank = { title: "", client: "", opposingParty: "", court: "", caseNumber: "", jurisdiction, practiceArea: "" };
@@ -57,7 +56,38 @@ export default function CasesPage() {
                   <Link key={c.id} to={`/cases/${c.id}`} className="rounded-xl border border-line bg-panel p-4 hover:border-accent">
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="font-serif text-lg font-semibold leading-snug">{c.title}</h3>
-                      <Badge tone={c.status === "active" ? "ok" : "neutral"}>{c.status}</Badge>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Badge tone={c.status === "active" ? "ok" : "neutral"}>{c.status}</Badge>
+                        <button
+                          type="button"
+                          aria-label={`Rename case ${c.title}`}
+                          title="Rename case"
+                          className="rounded p-1 text-muted hover:text-accent"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const next = prompt("Enter new case title:", c.title);
+                            if (next && next.trim()) updateCase(c.id, { title: next.trim() });
+                          }}
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Delete case ${c.title}`}
+                          title="Delete case"
+                          className="rounded p-1 text-muted hover:text-bad"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (confirm(`Permanently delete "${c.title}" and all its documents, pgvector embeddings, and data from PostgreSQL?`)) {
+                              deleteCase(c.id);
+                            }
+                          }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
                     <p className="mt-1 text-sm text-muted">{c.client || "No client"}{c.opposingParty && ` v. ${c.opposingParty}`}</p>
                     <p className="text-sm text-muted">{[c.court, c.caseNumber].filter(Boolean).join(", ")}</p>

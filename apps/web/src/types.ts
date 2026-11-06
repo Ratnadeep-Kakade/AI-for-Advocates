@@ -1,6 +1,7 @@
 // Shared types. The StreamEvent union is the contract between the Modal backend and this UI.
 
 export type AgentId =
+  | "interpreter"
   | "orchestrator"
   | "analyzer"
   | "researcher"
@@ -9,6 +10,7 @@ export type AgentId =
   | "evaluator";
 
 export const AGENTS: Record<AgentId, { name: string; role: string }> = {
+  interpreter: { name: "Request interpreter", role: "Interprets inquiries and delivers direct legal intelligence" },
   orchestrator: { name: "Orchestrator", role: "Plans the work, delegates and writes the final answer" },
   analyzer: { name: "Document analyzer", role: "Extracts parties, dates, obligations and facts from case documents" },
   researcher: { name: "Legal researcher", role: "Runs iterative research across legal sources and case documents" },
@@ -87,6 +89,7 @@ export interface Chat { id: string; title: string; caseId?: string; createdAt: n
 // Mirrors the CaseIntelligence JSON produced by the Document Intelligence agent.
 export interface CaseIntel {
   case_id?: string;
+  summary?: string;
   parties: { name: string; role?: string }[];
   contractual_obligations: string[];
   material_facts: string[];
@@ -117,6 +120,7 @@ export interface CaseDoc {
   name: string;
   size: number;
   status: "processing" | "analyzed" | "failed";
+  stage?: string;
   addedAt: number;
 }
 

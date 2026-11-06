@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { AGENT_IDS, DEFAULT_MODELS } from "./types";
 import type { AgentId, Case, CaseDoc, CaseIntel, Chat, Deadline, Message, ModelOption, TaskMode } from "./types";
 import { uid } from "./lib/util";
+import { deleteCaseRemote, deleteChatRemote, updateCaseRemote } from "./lib/api";
 
 type Theme = "system" | "light" | "dark";
 
@@ -35,11 +36,13 @@ interface State {
   setIntel: (id: string, intel: CaseIntel) => void;
   deleteCase: (id: string) => void;
 
+  setCaseDocs: (caseId: string, docs: CaseDoc[]) => void;
   addDoc: (d: CaseDoc) => void;
   patchDoc: (id: string, patch: Partial<CaseDoc>) => void;
   removeDoc: (id: string) => void;
 
   createChat: (caseId?: string) => string;
+  renameChat: (id: string, title: string) => void;
   deleteChat: (id: string) => void;
   setChatCase: (id: string, caseId?: string) => void;
   addMessages: (chatId: string, msgs: Message[]) => void;
@@ -91,23 +94,56 @@ export const useStore = create<State>()(
       setBusy: (chatId, b) => set((s) => ({ busy: { ...s.busy, [chatId]: b } })),
       setSidebar: (sidebarOpen) => set({ sidebarOpen }),
 
-      setCases: (cases) => set({ cases }),
+      setCases: (cases) =>
+        set((state) => {
+          const existingIntel = new Map(state.cases.map((c) => [c.id, c.intel]));
+          return {
+            cases: cases.map((c) => ({
+              ...c,
+              intel: c.intel || existingIntel.get(c.id),
+            })),
+          };
+        }),
       createCase: (c) => {
         const id = uid();
         set((s) => ({ cases: [{ ...c, id, status: "active", createdAt: Date.now() }, ...s.cases] }));
         return id;
       },
-      updateCase: (id, patch) => set((s) => ({ cases: s.cases.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
+      updateCase: (id, patch) => {
+        updateCaseRemote(id, {
+          title: patch.title,
+          court: patch.court,
+          jurisdiction: patch.jurisdiction,
+          practiceArea: patch.practiceArea,
+          status: patch.status,
+        }).catch(() => {});
+        set((s) => ({ cases: s.cases.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
+      },
       setIntel: (id, intel) => set((s) => ({ cases: s.cases.map((c) => (c.id === id ? { ...c, intel } : c)) })),
-      deleteCase: (id) =>
+      deleteCase: (id) => {
+        deleteCaseRemote(id).catch(() => {});
         set((s) => ({
           cases: s.cases.filter((c) => c.id !== id),
           docs: s.docs.filter((d) => d.caseId !== id),
           deadlines: s.deadlines.filter((d) => d.caseId !== id),
           chats: s.chats.map((c) => (c.caseId === id ? { ...c, caseId: undefined } : c)),
-        })),
+        }));
+      },
 
-      addDoc: (d) => set((s) => ({ docs: [d, ...s.docs] })),
+      setCaseDocs: (caseId, newDocs) =>
+        set((s) => ({
+          docs: [...s.docs.filter((d) => d.caseId !== caseId), ...newDocs],
+        })),
+      addDoc: (d) =>
+        set((s) => {
+          const idx = s.docs.findIndex((x) => x.id === d.id);
+          if (idx >= 0) {
+            const copy = [...s.docs];
+            copy[idx] = { ...copy[idx], ...d };
+            return { docs: copy };
+          }
+          return { docs: [d, ...s.docs] };
+        }),
       patchDoc: (id, patch) => set((s) => ({ docs: s.docs.map((d) => (d.id === id ? { ...d, ...patch } : d)) })),
       removeDoc: (id) => set((s) => ({ docs: s.docs.filter((d) => d.id !== id) })),
 
@@ -117,7 +153,14 @@ export const useStore = create<State>()(
         set((s) => ({ chats: [{ id, title: "New chat", caseId, createdAt: now, updatedAt: now, messages: [] }, ...s.chats] }));
         return id;
       },
-      deleteChat: (id) => set((s) => ({ chats: s.chats.filter((c) => c.id !== id) })),
+      renameChat: (id, title) =>
+        set((s) => ({
+          chats: s.chats.map((c) => (c.id === id ? { ...c, title: title.trim() || c.title, updatedAt: Date.now() } : c)),
+        })),
+      deleteChat: (id) => {
+        deleteChatRemote(id).catch(() => {});
+        set((s) => ({ chats: s.chats.filter((c) => c.id !== id) }));
+      },
       setChatCase: (id, caseId) => set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, caseId } : c)) })),
       addMessages: (chatId, msgs) =>
         set((s) => ({

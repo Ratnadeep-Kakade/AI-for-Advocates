@@ -15,10 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cicero.api.dependencies import DemoIdentity, get_demo_identity
-from cicero.db.dependencies import get_transactional_db_session
-from cicero.db.repositories.case import CaseRepository
-from cicero.rag.client import RagClient, RagServiceUnavailable
+from cicero_api.deps import DemoIdentity, get_demo_identity, get_transactional_db_session
+from cicero.persistence.repositories.case import CaseRepository
+from cicero.rag.retrieval.client import RagClient, RagServiceUnavailable
 
 router = APIRouter(prefix="/api/cases/{case_id}/evidence", tags=["evidence"])
 

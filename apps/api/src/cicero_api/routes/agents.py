@@ -20,15 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cicero.agents.base import AgentContext, AgentResult
 from cicero.agents.document_intelligence.agent import DocumentIntelligenceAgent
 from cicero.agents.factory import build_agents
-from cicero.api.dependencies import DemoIdentity, get_demo_identity
-from cicero.db.dependencies import get_transactional_db_session
-from cicero.db.repositories.case import CaseRepository
-from cicero.db.repositories.executions import ExecutionRepository
+from cicero_api.deps import DemoIdentity, get_demo_identity, get_transactional_db_session
+from cicero.persistence.repositories.case import CaseRepository
+from cicero.persistence.repositories.executions import ExecutionRepository
 from cicero.harness.engine import HarnessEngine
-from cicero.orchestrator.plan import Interpreter, OrchestratorPlanner, OrchestratorSynthesizer
+from cicero.orchestrator.planner import Interpreter, OrchestratorPlanner, OrchestratorSynthesizer
 from cicero.orchestrator.schemas import PlanTask
-from cicero.rag.client import RagClient, RagServiceUnavailable
-from cicero.registry.loader import RuntimeRegistry, load_registry
+from cicero.rag.retrieval.client import RagClient, RagServiceUnavailable
+from cicero.harness.registry_loader import RuntimeRegistry, load_registry
 
 logger = logging.getLogger(__name__)
 
@@ -49,38 +48,90 @@ class AnalyzeRequest(BaseModel):
 
 
 def to_case_intel(result: Any, case_id: str) -> dict[str, Any]:
-    """Map the AgentResult payload to the frontend CaseIntel contract."""
-    data = result.output_data.get("case_intelligence", {})
+    """Map the AgentResult or AgentResultRecord payload to the frontend CaseIntel contract."""
+    output = getattr(result, "output_data", {}) or {}
+    if not output and isinstance(result, dict):
+        output = result.get("output_data", result)
+    data = output.get("case_intelligence") or output
+
     obligations: list[str] = []
     for o in data.get("obligations", []):
-        text = f"{o.get('party', '')}: {o.get('obligation', '')}".strip(": ")
-        if o.get("clause_reference"):
-            text += f" [{o['clause_reference']}]"
-        if o.get("status"):
-            text += f" — {o['status']}"
-        obligations.append(text)
+        if isinstance(o, str):
+            obligations.append(o)
+            continue
+        if isinstance(o, dict):
+            text = f"{o.get('party', '')}: {o.get('obligation', '')}".strip(": ")
+            if o.get("clause_reference"):
+                text += f" [{o['clause_reference']}]"
+            if o.get("status"):
+                text += f" — {o['status']}"
+            obligations.append(text)
+    if not obligations and data.get("contractual_obligations"):
+        obligations = list(data.get("contractual_obligations", []))
+
+    material_facts: list[str] = []
+    for f in data.get("facts", []):
+        if isinstance(f, str):
+            material_facts.append(f)
+        elif isinstance(f, dict):
+            material_facts.append(f.get("fact", ""))
+    if not material_facts and data.get("material_facts"):
+        material_facts = list(data.get("material_facts", []))
+
+    important_dates: list[dict[str, str]] = []
+    for t in data.get("timeline", []):
+        if isinstance(t, dict):
+            important_dates.append({
+                "label": t.get("event") or t.get("label", ""),
+                "date": t.get("date", ""),
+            })
+    if not important_dates and data.get("important_dates"):
+        important_dates = list(data.get("important_dates", []))
+
+    legal_issues: list[str] = []
+    for b in data.get("potential_breaches", []):
+        if isinstance(b, dict) and b.get("description"):
+            legal_issues.append(b["description"])
+        elif isinstance(b, str):
+            legal_issues.append(b)
+    for c in data.get("contradictions", []):
+        if isinstance(c, dict) and c.get("description"):
+            legal_issues.append(c["description"])
+        elif isinstance(c, str):
+            legal_issues.append(c)
+    if not legal_issues and data.get("legal_issues"):
+        legal_issues = list(data.get("legal_issues", []))
+
+    contradictions: list[str] = []
+    for c in data.get("contradictions", []):
+        if isinstance(c, dict) and c.get("description"):
+            contradictions.append(c["description"])
+        elif isinstance(c, str):
+            contradictions.append(c)
+
+    evidence_refs = getattr(result, "evidence_references", None)
+    if evidence_refs is None and isinstance(result, dict):
+        evidence_refs = result.get("evidence_references", [])
+    if not evidence_refs and data.get("evidence_references"):
+        evidence_refs = data.get("evidence_references", [])
+
     return {
         "case_id": case_id,
         "summary": data.get("summary", ""),
         "parties": [
-            {"name": p.get("name", ""), "role": p.get("role") or None}
+            {
+                "name": p.get("name", "") if isinstance(p, dict) else str(p),
+                "role": p.get("role") or None if isinstance(p, dict) else None,
+            }
             for p in data.get("parties", [])
         ],
         "contractual_obligations": obligations,
-        "material_facts": [f.get("fact", "") for f in data.get("facts", [])],
-        "important_dates": [
-            {"label": t.get("event", ""), "date": t.get("date", "")}
-            for t in data.get("timeline", [])
-        ],
-        "legal_issues": [
-            b.get("description", "") for b in data.get("potential_breaches", [])
-        ]
-        + [c.get("description", "") for c in data.get("contradictions", [])],
-        "contradictions": [
-            c.get("description", "") for c in data.get("contradictions", [])
-        ],
+        "material_facts": material_facts,
+        "important_dates": important_dates,
+        "legal_issues": legal_issues,
+        "contradictions": contradictions,
         "missing_information": list(data.get("missing_information", [])),
-        "evidence_references": list(result.evidence_references),
+        "evidence_references": list(evidence_refs or []),
     }
 
 
@@ -115,20 +166,84 @@ async def analyze_case(
         objective=objective,
     )
     try:
-        result = await agent.execute(
-            context,
-            {
-                "objective": objective,
-                "document_ids": [str(d) for d in payload.document_ids]
-                if payload.document_ids
-                else None,
-            },
+        result = await asyncio.wait_for(
+            agent.execute(
+                context,
+                {
+                    "objective": objective,
+                    "document_ids": [str(d) for d in payload.document_ids]
+                    if payload.document_ids
+                    else None,
+                },
+            ),
+            timeout=240.0,
         )
+    except asyncio.TimeoutError:
+        logger.warning("Document intelligence analysis timed out for case %s", case_id)
+        raise HTTPException(status_code=504, detail="Document analysis timed out.")
     except RagServiceUnavailable as exc:
         raise HTTPException(status_code=503, detail="RAG retrieval is unavailable.") from exc
+    except Exception as exc:
+        logger.exception("Document intelligence agent failed for case %s: %s", case_id, exc)
+        raise HTTPException(status_code=500, detail=f"Document analysis error: {exc}")
     if result.status == "failed":
         raise HTTPException(status_code=502, detail="Document analysis failed.")
+
+    # Persist the execution and agent result to Postgres so analysis is permanently saved
+    try:
+        exec_repo = ExecutionRepository(session)
+        exec_record = await exec_repo.create_execution(
+            organization_id=identity.organization_id,
+            case_id=case_id,
+            user_request=objective,
+            position=None,
+        )
+        await exec_repo.save_result(
+            result,
+            execution_id=exec_record.execution_id,
+            organization_id=identity.organization_id,
+        )
+        summary = (
+            result.output_data.get("case_intelligence", {}).get("summary", "")
+            if isinstance(result.output_data, dict)
+            else ""
+        )
+        await exec_repo.set_status(
+            exec_record,
+            status="completed",
+            final_response=summary,
+        )
+        await session.commit()
+    except Exception as exc:
+        logger.warning("Failed to persist document intelligence result to DB: %s", exc)
+
     return to_case_intel(result, str(case_id))
+
+
+@router.get("/intel")
+@router.get("/analyze")
+async def get_case_intel(
+    case_id: UUID,
+    identity: Annotated[DemoIdentity, Depends(get_demo_identity)],
+    session: Annotated[AsyncSession, Depends(get_transactional_db_session)],
+) -> dict[str, Any] | None:
+    repository = CaseRepository(session)
+    membership = await repository.get_member(
+        case_id, identity.organization_id, identity.user_id
+    )
+    case = await repository.get_by_id(case_id, organization_id=identity.organization_id)
+    if case is None or membership is None:
+        raise HTTPException(status_code=404, detail="Case not found.")
+
+    exec_repo = ExecutionRepository(session)
+    latest_result = await exec_repo.get_latest_result(
+        case_id=case_id,
+        organization_id=identity.organization_id,
+        agent_id="document_intelligence",
+    )
+    if latest_result is None or not latest_result.output_data:
+        return None
+    return to_case_intel(latest_result, str(case_id))
 
 
 class CreateExecutionRequest(BaseModel):

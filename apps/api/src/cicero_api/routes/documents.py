@@ -16,18 +16,40 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from cicero.api.dependencies import DemoIdentity, get_demo_identity
-from cicero.auth.google_credentials import GoogleCredentialsProvider
-from cicero.db.connection import DatabaseManager
-from cicero.db.dependencies import get_transactional_db_session
-from cicero.db.repositories.case import CaseRepository
-from cicero.db.repositories.document import DocumentRepository
-from cicero.db.repositories.processing import ProcessingRepository
-from cicero.storage.manager import (
-    StorageConfigurationError,
-    StorageManager,
-    StorageObjectNotFoundError,
-)
+try:
+    from cicero_api.deps import DemoIdentity, get_demo_identity, get_transactional_db_session
+except ImportError:
+    from cicero.api.dependencies import DemoIdentity, get_demo_identity
+    from cicero.db.dependencies import get_transactional_db_session
+
+try:
+    from cicero.cloud.auth.google_credentials import GoogleCredentialsProvider
+except ImportError:
+    from cicero.auth.google_credentials import GoogleCredentialsProvider
+
+try:
+    from cicero.persistence.database import DatabaseManager
+    from cicero.persistence.repositories.case import CaseRepository
+    from cicero.persistence.repositories.document import DocumentRepository
+    from cicero.persistence.repositories.processing import ProcessingRepository
+except ImportError:
+    from cicero.db.connection import DatabaseManager
+    from cicero.db.repositories.case import CaseRepository
+    from cicero.db.repositories.document import DocumentRepository
+    from cicero.db.repositories.processing import ProcessingRepository
+
+try:
+    from cicero.cloud.storage.manager import (
+        StorageConfigurationError,
+        StorageManager,
+        StorageObjectNotFoundError,
+    )
+except ImportError:
+    from cicero.storage.manager import (
+        StorageConfigurationError,
+        StorageManager,
+        StorageObjectNotFoundError,
+    )
 
 logger = logging.getLogger("cicero.api.documents")
 
@@ -75,6 +97,7 @@ class DocumentRead(BaseModel):
     file_size: int
     processing_run_id: UUID
     processing_status: str
+    processing_stage: str | None = None
 
 
 def _safe_filename(filename: str) -> str:
@@ -130,6 +153,34 @@ async def _mark_dispatch_failed(
                     }
     finally:
         await manager.close()
+
+
+async def _dispatch_document_job(settings: Any, payload: dict[str, str]) -> None:
+    """Attempt immediate direct dispatch to RAG worker /ingest endpoint."""
+    worker_url = getattr(settings, "rag_worker_url", None)
+    service_token = getattr(settings, "rag_service_token", None)
+    if not worker_url:
+        return
+    try:
+        import httpx
+
+        headers = {"Authorization": f"Bearer {service_token}"} if service_token else {}
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            res = await client.post(
+                f"{str(worker_url).rstrip('/')}/ingest",
+                json=payload,
+                headers=headers,
+            )
+            if res.status_code == 200:
+                logger.info(
+                    "Direct RAG worker /ingest accepted run %s",
+                    payload.get("processing_run_id"),
+                )
+    except Exception as exc:
+        logger.warning(
+            "Direct RAG worker /ingest attempt failed (Pub/Sub will deliver): %s",
+            exc,
+        )
 
 
 def _publish_document_job(
@@ -292,27 +343,38 @@ async def complete_upload(
     )
     await session.flush()
     topic_path = request.app.state.settings.pubsub_document_topic
-    if topic_path:
-        background_tasks.add_task(
-            _publish_document_job,
-            topic_path,
-            {
-                "organization_id": str(identity.organization_id),
-                "case_id": str(case_id),
-                "document_id": str(document.document_id),
-                "version_id": str(version.version_id),
-                "processing_run_id": str(run.processing_run_id),
-            },
-            request.app.state.settings,
-        )
+    worker_url = getattr(request.app.state.settings, "rag_worker_url", None)
+    if topic_path or worker_url:
+        job_payload = {
+            "organization_id": str(identity.organization_id),
+            "case_id": str(case_id),
+            "document_id": str(document.document_id),
+            "version_id": str(version.version_id),
+            "processing_run_id": str(run.processing_run_id),
+        }
+        if worker_url:
+            try:
+                await asyncio.wait_for(
+                    _dispatch_document_job(request.app.state.settings, job_payload),
+                    timeout=3.0,
+                )
+            except Exception as exc:
+                logger.debug("Immediate worker dispatch bypassed: %s", exc)
+        if topic_path:
+            background_tasks.add_task(
+                _publish_document_job,
+                topic_path,
+                job_payload,
+                request.app.state.settings,
+            )
     else:
-        # No topic configured means nothing will ever pick this run up; fail
+        # No topic or worker configured means nothing will ever pick this run up; fail
         # visibly instead of leaving it pending forever.
         run.processing_status = "failed"
         run.completed_at = datetime.now(UTC).replace(tzinfo=None)
         run.error_message = (
             "Document processing dispatch is not configured "
-            "(CICERO_PUBSUB_DOCUMENT_TOPIC is missing)."
+            "(neither CICERO_PUBSUB_DOCUMENT_TOPIC nor CICERO_RAG_WORKER_URL is available)."
         )
         run.processing_metadata = {
             **(run.processing_metadata or {}),
@@ -321,6 +383,11 @@ async def complete_upload(
     await session.refresh(document)
     await session.refresh(version)
     await session.refresh(run)
+    init_stage = "Chunking"
+    if run.processing_status == "completed":
+        init_stage = "Processed"
+    elif run.processing_status == "failed":
+        init_stage = "Failed"
     return DocumentRead(
         document_id=document.document_id,
         case_id=document.case_id,
@@ -334,6 +401,7 @@ async def complete_upload(
         file_size=version.file_size,
         processing_run_id=run.processing_run_id,
         processing_status=run.processing_status,
+        processing_stage=init_stage,
     )
 
 
@@ -363,6 +431,22 @@ async def list_documents(
         if not runs:
             continue
         run = runs[0]
+        stage = "Chunking"
+        if run.processing_status == "completed":
+            stage = "Processed"
+        elif run.processing_status == "failed":
+            stage = "Failed"
+        elif run.processing_metadata:
+            raw_state = str(run.processing_metadata.get("state") or run.processing_metadata.get("stage") or "").lower()
+            if "embed" in raw_state:
+                stage = "Embedding"
+            elif "chunk" in raw_state or "pars" in raw_state:
+                stage = "Chunking"
+            elif "download" in raw_state or "upload" in raw_state:
+                stage = "Uploading"
+            elif raw_state:
+                stage = raw_state.capitalize()
+
         result.append(DocumentRead(
             document_id=document.document_id,
             case_id=document.case_id,
@@ -376,5 +460,80 @@ async def list_documents(
             file_size=version.file_size,
             processing_run_id=run.processing_run_id,
             processing_status=run.processing_status,
+            processing_stage=stage,
         ))
     return result
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    case_id: UUID,
+    document_id: UUID,
+    identity: Annotated[DemoIdentity, Depends(get_demo_identity)],
+    session: Annotated[AsyncSession, Depends(get_transactional_db_session)],
+) -> None:
+    """Permanently delete a document and all associated Postgres rows and pgvector embeddings."""
+    await _authorize_case(session, identity, case_id)
+    repo = DocumentRepository(session)
+    doc = await repo.get_by_id(document_id, organization_id=identity.organization_id)
+    if doc is None or doc.case_id != case_id:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    from sqlalchemy import delete
+    try:
+        from cicero.persistence.models.documents import (
+            Document,
+            DocumentChunk,
+            DocumentExtraction,
+            DocumentProcessingRun,
+            DocumentVersion,
+        )
+    except ImportError:
+        from cicero.db.models.documents import (
+            Document,
+            DocumentChunk,
+            DocumentExtraction,
+            DocumentProcessingRun,
+            DocumentVersion,
+        )
+
+    # 1. Delete all chunks and embeddings (pgvector data)
+    await session.execute(
+        delete(DocumentChunk).where(
+            DocumentChunk.document_id == document_id,
+            DocumentChunk.organization_id == identity.organization_id,
+        )
+    )
+
+    # 2. Delete all extractions
+    await session.execute(
+        delete(DocumentExtraction).where(
+            DocumentExtraction.document_id == document_id,
+            DocumentExtraction.organization_id == identity.organization_id,
+        )
+    )
+
+    # 3. Delete all processing runs
+    await session.execute(
+        delete(DocumentProcessingRun).where(
+            DocumentProcessingRun.document_id == document_id,
+            DocumentProcessingRun.organization_id == identity.organization_id,
+        )
+    )
+
+    # 4. Delete all document versions
+    await session.execute(
+        delete(DocumentVersion).where(
+            DocumentVersion.document_id == document_id,
+            DocumentVersion.organization_id == identity.organization_id,
+        )
+    )
+
+    # 5. Delete the document record itself
+    await session.execute(
+        delete(Document).where(
+            Document.document_id == document_id,
+            Document.organization_id == identity.organization_id,
+        )
+    )
+    await session.flush()

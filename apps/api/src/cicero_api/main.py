@@ -5,13 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from cicero import __version__
-from cicero.api.routes.agents import router as agents_router
-from cicero.api.routes.cases import router as cases_router
-from cicero.api.routes.documents import router as documents_router
-from cicero.api.routes.evidence import router as evidence_router
-from cicero.config import Settings, get_settings
-from cicero.db.connection import DatabaseManager
-from cicero.models.gateway import ModelGateway
+from cicero_api.routes.agents import router as agents_router
+from cicero_api.routes.cases import router as cases_router
+from cicero_api.routes.chat import router as chat_router
+from cicero_api.routes.documents import router as documents_router
+from cicero_api.routes.evidence import router as evidence_router
+from cicero.core.config import Settings, get_settings
+from cicero.persistence.database import DatabaseManager
+from cicero.llm.gateway import ModelGateway
 from cicero.storage.manager import StorageManager
 
 
@@ -52,7 +53,7 @@ def create_app(
             CORSMiddleware,
             allow_origins=allowed_origins,
             allow_credentials=False,
-            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
             allow_headers=["Content-Type", "Accept"],
         )
 
@@ -64,6 +65,7 @@ def create_app(
     application.include_router(documents_router)
     application.include_router(evidence_router)
     application.include_router(agents_router)
+    application.include_router(chat_router)
 
     @application.get("/", tags=["system"])
     async def root() -> dict[str, str]:
