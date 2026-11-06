@@ -392,6 +392,31 @@ export async function uploadDocument(
   }
   const contentType = contentTypeFor(file);
   onProgress?.("Uploading");
+
+  // Primary path: Direct upload to backend API (reliable, fast, immune to browser GCS CORS)
+  try {
+    const directRes = await fetch(
+      `${API}/api/cases/${caseId}/documents/upload?filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": contentType,
+          "X-Filename": encodeURIComponent(file.name),
+          Accept: "application/json",
+        },
+        body: file,
+      }
+    );
+    if (directRes.ok) {
+      onProgress?.("Chunking");
+      const doc = (await directRes.json()) as ApiDocument;
+      return { id: doc.document_id, processingStatus: doc.processing_status, processingStage: doc.processing_stage };
+    }
+  } catch (err) {
+    console.warn("Direct upload failed, attempting signed URL fallback...", err);
+  }
+
+  // Fallback path: Pre-signed GCS URL
   const urlRes = await fetch(`${API}/api/cases/${caseId}/documents/upload-url`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
