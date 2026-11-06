@@ -1,0 +1,491 @@
+CICERO — PROJECT DESCRIPTION
+============================
+
+Audience and scope
+------------------
+This document describes Cicero as a system: what it does, how it is structured,
+which platform hosts each part, how requests and documents move through it, and
+where every responsibility lives in the repository. It is written so that an
+engineer, reviewer, or operator can understand the project end to end without
+reading source code. Implementation detail is included only where it defines
+behaviour, contracts, or operational obligations.
+
+--------------------------------------------------------------------------------
+1. PRODUCT SUMMARY
+--------------------------------------------------------------------------------
+
+Cicero is a multi-agent legal AI system built for the META Hackathon. A user
+creates a legal case, uploads case documents (PDF or DOCX, including very large
+filings of roughly 500-600 pages), and then asks questions or requests analysis
+in natural language. Cicero answers from the uploaded documents first, using a
+structure-aware retrieval system that returns verified, page-anchored evidence,
+and then runs a team of specialist AI agents that analyse the documents,
+research external legal authorities, build arguments, attack those arguments
+from the opposing side, and evaluate the result before a final answer is
+synthesised.
+
+The defining product decision is that factual claims must be grounded. Agents
+do not receive raw conversation history or unrestricted document text. They
+receive validated, structured inputs: task specifications, execution plans,
+case-intelligence objects, and evidence packs whose quotes have been checked
+against the parsed source documents. If retrieval cannot verify enough
+evidence, the system returns an explicit "insufficient evidence" result rather
+than guessing.
+
+Model allocation is deliberate:
+
+- Muse Spark 1.3 (Meta Model API) powers the Request Interpreter, the Central
+  Orchestrator, and general conversational legal advisory.
+- DeepSeek-R1-Distill-Llama-70B (AWQ 4-bit checkpoint, served by vLLM on one
+  Modal A100-80GB GPU) powers the Document Intelligence, Legal Researcher,
+  Argument, Counterargument, and Evaluator agents. One shared high-throughput
+  inference service serves all specialized roles.
+- BGE-M3 embeddings and the BGE reranker (on a Modal T4 GPU) power document
+  ingestion and structure-aware retrieval.
+- Gemini 2.5 Flash is used only as a Google Search grounding intermediary for
+  external legal research; the DeepSeek Legal Researcher reasons over what it
+  returns.
+
+Platform allocation is equally deliberate:
+
+- UI: React/Vite frontend, deployed on Vercel (also runnable locally).
+- Compute and backend APIs: Modal (CPU API app, T4 RAG worker app, A100 vLLM
+  app).
+- Data and files: Google Cloud only — Cloud SQL PostgreSQL with pgvector for
+  all structured data and embeddings, Cloud Storage for the document files,
+  Pub/Sub for asynchronous job dispatch.
+- Identity between Modal and Google Cloud: Workload Identity Federation (WIF).
+  No Google service-account JSON keys exist anywhere in the system.
+
+--------------------------------------------------------------------------------
+2. DESIGN PRINCIPLES
+--------------------------------------------------------------------------------
+
+1. Evidence before opinion. No specialist agent may assert a document fact
+   without a retrieved, validated evidence item behind it.
+2. Structured communication only. Agents exchange typed objects and references
+   (IDs), never raw chat transcripts. Every inter-agent payload is
+   schema-validated.
+3. Deterministic guardrails around probabilistic models. Python code — not the
+   LLM — owns workflow state, permissions, retries, citation checking, evidence
+   validation, and failure recording.
+4. Declarative agent definitions, centralised enforcement. Each agent declares
+   its capabilities, inputs, outputs, and tools in a YAML manifest. A central
+   policy in Python decides what may actually run; manifests cannot grant
+   themselves permissions.
+5. Asynchronous heavy jobs, real-time streaming queries. Document ingestion runs
+   as an asynchronous background worker with persisted state. Interactive legal
+   advisory streams tokens in real time via Server-Sent Events (SSE) with live
+   agent trace telemetry.
+6. Fail visibly. Every long-running job records a terminal state (completed or
+   failed, with a stored error). A job must never sit silently in an
+   intermediate state.
+7. Tenant scoping everywhere. Every document, chunk, run, and execution is
+   scoped by organization_id (and usually case_id). Queries are always
+   organization-filtered.
+8. Secrets live in platform secret stores only. Modal Secrets and Google Cloud
+   hold all credentials; the repository contains names and placeholders, never
+   values.
+9. Byte-Level BPE Detokenization. Tri-layer inverse decoding guarantees that raw
+   tokenizer artifacts (such as Llama-3 byte markers 'Ġ' for space and 'Ċ' for
+   newline) are decoded into standard human-readable UTF-8 across providers,
+   streaming routes, and frontend rendering.
+10. Dynamic context budgeting. Context length is dynamically calculated and
+    output tokens clamped so input + output never exceeds the 8,192 token
+    boundary of vLLM / A100.
+
+--------------------------------------------------------------------------------
+3. HIGH-LEVEL ARCHITECTURE
+--------------------------------------------------------------------------------
+
+Cicero is organised into five distinct planes:
+
+A. Presentation plane (frontend/)
+   React 18 + Vite single-page application. Features:
+   - Case management and workspace overview.
+   - Document upload with direct-to-GCS upload progress and status polling.
+   - Case Intelligence panel showing extracted parties, obligations, timeline,
+     material facts, potential breaches, and contradictions.
+   - Real-time conversational console with typewriter streaming, live agent
+     reasoning badges, and 5 specialized mode pills (Auto, Research, Analyze
+     Documents, Build arguments, Full analysis).
+   - Evidence Drawer displaying page-anchored, verified evidence passages.
+   - One-click legal memo export (Markdown).
+   Talks to the backend over HTTPS JSON and SSE streams. Holds no secrets and
+   no direct access to Google Cloud data services except short-lived signed URLs.
+
+B. Control plane (Modal app "cicero-backend", CPU)
+   FastAPI application. Owns the public API: cases, document upload grants and
+   registration, evidence retrieval requests, case analysis, real-time SSE chat
+   streaming, and multi-agent executions. Owns the model gateway (provider
+   routing to Meta, vLLM, or mock), agent registry loading, orchestration
+   planning, execution harness, and all database reads/writes for interactive
+   traffic.
+
+C. Ingestion and retrieval plane (Modal app "cicero-rag-worker", T4 GPU)
+   Two functions share one app and one container image:
+   - fastapi_app: HTTPS surface. Receives Pub/Sub push deliveries, verifies
+     the OIDC identity of the push, and spawns ingestion jobs. Also serves
+     /retrieve (concurrent multi-lens EvidencePack retrieval for the backend)
+     and health endpoints.
+   - process_document: spawned, long-running (up to 3600 s) ingestion job.
+     Downloads one document version from Cloud Storage, parses it with
+     Docling, extracts legal structure, chunks it, embeds the indexable
+     chunks with BGE-M3, and persists everything to Cloud SQL.
+   Retrieval runs inside this same app because it needs the embedding and
+   reranking models on the GPU.
+
+D. Inference plane (Modal app "cicero-llama-inference", A100-80GB; plus external APIs)
+   A dedicated vLLM 0.8+ server exposing an OpenAI-compatible API for the AWQ
+   DeepSeek-R1-Distill-Llama-70B checkpoint (served model name
+   "deepseek-r1-distill-llama-70b", max context 8192). High-throughput FP16/AWQ
+   tensor cores deliver ~33 tokens/second for complex legal reasoning, defense
+   arguments, and structured Case Intelligence JSON generation. Externally, the
+   Meta Model API serves Muse Spark 1.3, and the Gemini API provides grounded
+   search results.
+
+E. Data plane (Google Cloud)
+   - Cloud SQL PostgreSQL (database "legal_ai") with the pgvector extension:
+     system of record for users, cases, documents, chunks, embeddings, legal
+     structure, and agent executions.
+   - Cloud Storage bucket "cicero-legal-documents-1575": private object store
+     for the original uploaded files. Browsers upload directly with signed
+     URLs; file bytes never pass through the backend.
+   - Pub/Sub topic "cicero-document-processing" with a push subscription to
+     the RAG worker: the dispatch mechanism between control and ingestion.
+
+--------------------------------------------------------------------------------
+4. DETAILED GOOGLE CLOUD PLATFORM (GCP) INTEGRATION
+--------------------------------------------------------------------------------
+
+Google Cloud serves as Cicero's enterprise persistence, storage, and eventing
+backbone. The system is designed so that no static credentials (such as service
+account JSON files) exist anywhere.
+
+4.1 Google Cloud Storage (GCS)
+- Bucket Name: cicero-legal-documents-1575
+- Region: asia-south1 / Multi-region
+- Purpose: Secure private repository for uploaded case documents (contracts,
+  discovery packets, pleadings, exhibits up to 200 MiB / 600 pages).
+- Direct-to-Bucket Upload Architecture:
+  To prevent large files from exhausting web server memory, browsers upload
+  directly to GCS using V4 Signed URLs.
+  Flow:
+  1. Frontend calls POST /api/cases/{case_id}/documents/upload-url with
+     filename, MIME type, and byte length.
+  2. Backend validates membership, constructs a tenant-partitioned object
+     name, and uses Google Cloud credentials to mint a time-limited (15 min)
+     V4 signed PUT URL.
+  3. Frontend PUTs raw bytes directly to the GCS bucket.
+  4. Frontend calls POST /api/cases/{case_id}/documents/complete. Backend
+     verifies object existence, content type, and size in GCS before recording
+     it in Cloud SQL.
+- Object Naming Convention:
+  orgs/{organization_id}/cases/{case_id}/documents/{document_id}/versions/{version_id}/{safe_filename}
+- CORS Policy (gcs-cors.json):
+  Enables browser PUT requests from the Vercel production origin
+  (https://ai-for-advocates-xi.vercel.app) and local development (http://localhost:5173)
+  with Content-Type headers.
+
+4.2 Cloud SQL PostgreSQL & pgvector
+- Instance Connection Name: project-d05a24bb-cf47-4351-b6e:asia-south1:legal-ai-db
+- Database Name: legal_ai
+- Driver & Pooling: Cloud SQL Python Connector with asyncpg and SQLAlchemy 2.0.
+  Connections use IAM authentication via the connector combined with the
+  built-in database user credentials.
+- Schema & Tables: 19 application tables across 5 schemas (auth, cases,
+  documents, intelligence, agents).
+- pgvector Vector Search:
+  - Embeddings are generated by BGE-M3 (1024 dimensions).
+  - Stored in the document_chunks table as vector(1024).
+  - Indexed using HNSW (Hierarchical Navigable Small World) indexes with
+    cosine distance (vector_cosine_ops, m=16, ef_construction=64) for
+    sub-millisecond similarity search across millions of chunks.
+- Lexical Full-Text Search:
+  - PostgreSQL tsvector columns with GIN indexes allow hybrid keyword matching
+    (BM25-style) fused with dense vectors via Reciprocal Rank Fusion (RRF).
+
+4.3 Cloud Pub/Sub
+- Topic: projects/project-d05a24bb-cf47-4351-b6e/topics/cicero-document-processing
+- Subscription: Push subscription delivering to the Modal RAG worker's
+  /pubsub/push endpoint.
+- Asynchronous Ingestion Handshake:
+  When a document upload is completed, the backend publishes a lightweight JSON
+  message containing only UUIDs (organization_id, case_id, document_id,
+  version_id, processing_run_id).
+- OIDC Security:
+  The push subscription authenticates using an OIDC token issued to the push
+  service account (cicero-pubsub-push@project-d05a24bb-cf47-4351-b6e.iam.gserviceaccount.com).
+  The RAG worker validates the token audience (the worker's public Modal URL)
+  and sender identity before spawning the GPU processing job.
+
+4.4 Google Workload Identity Federation (WIF)
+- Pool: cicero-modal-pool
+- Provider: modal-oidc
+- Impersonated Service Account:
+  cicero-backend@project-d05a24bb-cf47-4351-b6e.iam.gserviceaccount.com
+- Keyless Authentication Flow:
+  1. Modal containers generate a signed Modal OIDC token at runtime.
+  2. The container exchanges the token with Google Cloud STS (Security Token
+     Service) under the WIF pool.
+  3. STS returns a federated Google access token that impersonates the service
+     account.
+  4. This token is used to open Cloud SQL connections, sign GCS upload URLs,
+     read/download GCS objects, and publish to Pub/Sub.
+  Result: Zero static Google Cloud service account keys (.json files) are
+  stored in the codebase, environment variables, or secrets.
+
+4.5 Gemini API Search Grounding
+- Model: gemini-2.5-flash
+- Purpose: Grounded external search adapter for the Legal Researcher. Generates
+  targeted legal search queries, gathers primary legal authorities, and quote-
+  verifies statutory provisions before feeding them to DeepSeek Llama 70B.
+
+--------------------------------------------------------------------------------
+5. DETAILED MODAL SERVERLESS COMPUTE INTEGRATION
+--------------------------------------------------------------------------------
+
+Modal provides the high-performance serverless compute layer for Cicero,
+splitting responsibilities across three autoscaling micro-services:
+
+5.1 App 1: "cicero-backend" (CPU Control Plane)
+- Entrypoint: deploy/modal/api_app.py
+- Runtime: Python 3.12 Debian Slim with asyncpg, SQLAlchemy, and FastAPI.
+- Endpoints:
+  - REST CRUD for cases, documents, upload URLs, evidence retrieval.
+  - POST /api/cases/{case_id}/analyze: Triggers Document Intelligence directly.
+  - POST /api/chat/stream: Universal Server-Sent Events (SSE) streaming
+    endpoint delivering real-time typewriter tokens and agent reasoning status
+    traces.
+- Role: Houses the Model Gateway, Context Budgeter, Capability Registry, and
+  Execution Harness.
+- Attached Modal Secrets: cicero-model-gateway, cicero-database, cicero-rag.
+- Scaling: Scales to zero on idle; scales horizontally with web traffic.
+
+5.2 App 2: "cicero-rag-worker" (NVIDIA T4 GPU Worker)
+- Entrypoint: deploy/modal/rag_worker_app.py
+- Hardware: NVIDIA T4 (16GB VRAM), 4 CPU, 32GB RAM for ingestion; 2 CPU,
+  8GB RAM for retrieval.
+- Software Stack: PyTorch CUDA, Docling (document layout analysis & OCR),
+  pdfplumber, FlagEmbedding (BGE-M3 dense embedder), BGE Cross-Encoder
+  reranker.
+- Functions:
+  - process_document: Spawned long-running background job (up to 3600 s)
+    isolated from HTTP timeouts. Downloads PDF from GCS, extracts legal
+    hierarchy, definitions, cross-references, dates, and tables, chunks the
+    document, computes 1024-dim BGE-M3 vectors, and persists to Cloud SQL.
+  - fastapi_app: HTTP service handling /pubsub/push (intake from Google Pub/Sub),
+    /retrieve (concurrent multi-lens EvidencePack retrieval), /healthz, and
+    /readyz.
+- Concurrency: Executes 6 structural retrieval queries concurrently using
+  asyncio.gather, reducing RAG retrieval latency from ~45s to ~7s.
+- Attached Modal Secrets: cicero-database, cicero-rag.
+
+5.3 App 3: "cicero-llama-inference" (NVIDIA A100-80GB GPU Inference)
+- Entrypoint: deploy/modal/llama_inference.py
+- Hardware: NVIDIA A100-80GB SXM, CUDA 12.6.
+- Model Checkpoint: casperhansen/deepseek-r1-distill-llama-70b-awq
+  (AWQ 4-bit quantization, served model name: deepseek-r1-distill-llama-70b).
+- vLLM Engine Configuration:
+  - Engine: vLLM >= 0.8.0
+  - Context Window: max_model_len = 8192
+  - Tensor Parallelism: 1 (fits comfortably in 80GB VRAM)
+  - Memory Utilization: gpu_memory_utilization = 0.90
+  - Target Concurrency: 2 concurrent sequences
+  - Scaledown Window: 20 minutes (keeps GPU warm during active legal sessions)
+- Persistent Modal Volumes:
+  - cicero-huggingface-cache mounted at /root/.cache/huggingface
+  - cicero-vllm-cache mounted at /root/.cache/vllm
+  Prevents re-downloading 38 GB of model weights across container restarts.
+- Throughput: Generates ~32–35 tokens/second with deep reasoning.
+- Attached Modal Secrets: cicero-llama-inference (HF_TOKEN, CICERO_VLLM_API_KEY).
+
+5.4 Modal Network & Communication Flow
+- The backend communicates with cicero-llama-inference over HTTPS via an
+  OpenAI-compatible client with bearer token authentication.
+- The backend communicates with cicero-rag-worker via authenticated RPC calls
+  to /retrieve using CICERO_RAG_SERVICE_TOKEN.
+- Grounding in 8192 token limit: Dynamic token clamping in the backend ensures
+  (estimated_input_tokens + max_output_tokens) <= 7600, preventing vLLM
+  context length overflow errors.
+
+--------------------------------------------------------------------------------
+6. REPOSITORY MAP — WORKSPACE ROOT
+--------------------------------------------------------------------------------
+
+The workspace root contains the deployable backend, frontend, prototype
+references, and documentation:
+
+  frontend/            Deployable web UI (Vercel or local Vite dev server).
+  backend/             Deployable backend: API, RAG worker, agents, database
+                       layer, migrations, Modal deployment files, operational
+                       scripts, and the backend test suite.
+  cicero/              Monorepo mirror containing apps/api, apps/web, and
+                       packages/cicero.
+  RAG_prototype/       The original "Argon" structure-aware legal RAG
+                       prototype (notebook, rag/ package, SQL migrations).
+  CICERO.txt           Primary product/architecture specification.
+  META Hackathon.md    Hackathon context and constraints.
+  agent_design_request.txt
+                       Detailed agent-system design brief.
+  project_description.txt
+                       This comprehensive architecture & system document.
+
+--------------------------------------------------------------------------------
+7. REPOSITORY MAP — BACKEND (backend/)
+--------------------------------------------------------------------------------
+
+The backend is a Python 3.12 project (uv-managed, Hatchling build, package
+name "cicero", version 0.3.0). Source lives under src/cicero/.
+
+7.1 Application and configuration
+  src/cicero/config.py
+      Single settings object (pydantic-settings, CICERO_ environment prefix).
+      Holds provider/model selection per agent role, database, storage,
+      Pub/Sub, WIF, RAG worker URL/token, demo identity, CORS, and timeouts.
+  src/cicero/api/app.py
+      FastAPI factory: lifespan management, CORS middleware, route registration,
+      system endpoints (/, /health, /health/database).
+  src/cicero/api/dependencies.py
+      Request dependencies, including demo identity.
+
+7.2 HTTP routes (src/cicero/api/routes/)
+  cases.py       GET/POST /api/cases, GET /api/cases/{case_id}, DELETE.
+  documents.py   POST /api/cases/{case_id}/documents/upload-url,
+                 POST /api/cases/{case_id}/documents/complete,
+                 GET  /api/cases/{case_id}/documents,
+                 DELETE /api/cases/{case_id}/documents/{doc_id}.
+  evidence.py    POST /api/cases/{case_id}/evidence. Synchronous EvidencePack
+                 retrieval against the RAG worker.
+  agents.py      POST /api/cases/{case_id}/analyze (Document Intelligence
+                 extracting CaseIntel), POST /executions (starts multi-agent run).
+  chat.py        POST /api/chat/stream: Real-time Server-Sent Events (SSE)
+                 chat endpoint with Claude-style typewriter token streaming,
+                 dynamic role-prompting for the 5 modes, and BPE sanitization.
+
+7.3 Agent system (src/cicero/agents/)
+  One folder per specialist: agent.yaml (manifest), agent.py (behaviour),
+  prompts.py (instructions), schemas.py (contracts):
+    argument/            Argument Agent (DeepSeek Llama 70B).
+    counterargument/     Counterargument Agent (DeepSeek Llama 70B).
+    document_intelligence/
+                         Document Intelligence Agent (DeepSeek Llama 70B);
+                         consumes EvidencePacks, emits CaseIntel.
+    evaluator/           Evaluator (DeepSeek Llama 70B + deterministic checks).
+    legal_researcher/    Legal Researcher (DeepSeek Llama 70B + Gemini search).
+    interpreter/         Request Interpreter (Muse Spark).
+    orchestrator/        Central Orchestrator (Muse Spark).
+  base.py / common.py    Shared agent plumbing, structured-output parsing,
+                         evidence validation, quote verification.
+  factory.py             Builds agent instances wired to gateway and tools.
+
+7.4 Model gateway (src/cicero/models/)
+  gateway.py     Routes agent roles to configured providers with bounded retries.
+  contracts.py / errors.py
+                 Shared request/response contracts and error taxonomy.
+  providers/     vllm_modal.py (Modal A100 vLLM endpoint), meta.py (Muse Spark),
+                 openai_compatible.py (OpenAI-compatible client with BPE decode),
+                 registry.py, base.py.
+
+7.5 Retrieval and ingestion (src/cicero/rag/)
+  argon/         Ported Argon prototype components: docling_parser.py,
+                 structural_processor.py, chunker.py, embeddings_and_qdrant.py.
+  pipeline.py    LegalRagPipeline: parse -> extract structure -> chunk -> embed.
+  retrieval.py   Query routing, candidate retrieval (dense + lexical + exact),
+                 fused with RRF, reranked, packed to token budget, validated.
+  client.py      Authenticated client for the worker's /retrieve endpoint.
+  rag_worker/service.py
+                 Worker implementation: claims with lease, downloads from GCS,
+                 Docling parsing, embedding, persistence, /retrieve endpoint.
+
+7.6 Deployments (deploy/)
+  deploy/modal/api_app.py        Modal app "cicero-backend" (CPU).
+  deploy/modal/rag_worker_app.py Modal app "cicero-rag-worker" (T4 GPU).
+  deploy/modal/llama_inference.py Modal app "cicero-llama-inference" (A100-80GB).
+
+--------------------------------------------------------------------------------
+8. REPOSITORY MAP — FRONTEND (frontend/)
+--------------------------------------------------------------------------------
+
+The frontend is a React 18 + Vite 6 + TypeScript + Tailwind CSS v4 single-page
+application (branded as Cicero).
+
+  src/types.ts     Shared contracts: Case, ApiDocument, CaseIntel, StreamEvent,
+                   Message, ModelOption.
+  src/store.ts     Zustand store: persisted cases, documents, messages, active mode.
+  src/lib/api.ts   Backend client: case CRUD, signed-URL uploads, document deletion,
+                   case analysis, fetchModels, SSE chat stream reader.
+  src/lib/ingest.ts
+                   Upload orchestration and document status polling.
+  src/components/  Composer (chat input + 5 mode pills: Auto, Research, Analyze,
+                   Arguments, Full), MessageView (markdown rendering, citation
+                   chips, BPE token cleanup, copy/export memo), ModelPicker,
+                   EvidenceDrawer, Analysis (CaseIntel panels), Sidebar.
+  src/pages/       CasesPage (case listing), CaseWorkspace (case details, document
+                   upload/management, Case Intelligence analysis), ChatPage.
+
+--------------------------------------------------------------------------------
+9. RUNTIME FLOWS
+--------------------------------------------------------------------------------
+
+9.1 Document Upload & Ingestion
+  1. User selects PDF/DOCX in Case Workspace.
+  2. UI calls POST /api/cases/{case_id}/documents/upload-url. Backend issues a
+     V4 signed PUT URL pointing directly to GCS.
+  3. Browser uploads bytes directly to Google Cloud Storage.
+  4. UI calls POST /api/cases/{case_id}/documents/complete. Backend registers
+     the document version and processing run in Cloud SQL.
+  5. Backend dispatches a message to Google Cloud Pub/Sub.
+  6. Pub/Sub pushes the event with OIDC auth to Modal RAG worker (/pubsub/push).
+  7. Worker spawns process_document on NVIDIA T4 GPU: downloads from GCS,
+     extracts legal structure with Docling, creates parent/child chunks,
+     computes 1024-dim BGE-M3 vectors, and saves to Cloud SQL.
+  8. Frontend polls GET documents and updates UI status to "Processed".
+
+9.2 Deep Case Intelligence Analysis
+  1. User clicks "Analyze documents" in the Case Intelligence tab.
+  2. UI calls POST /api/cases/{case_id}/analyze.
+  3. DocumentIntelligenceAgent fires 6 structural queries concurrently to the
+     RAG worker via asyncio.gather.
+  4. RAG worker performs hybrid search (dense pgvector + lexical + cross-encoder
+     reranking) and returns verified EvidencePacks.
+  5. Top 15 evidence items are compiled into the prompt for DeepSeek-R1 Distill
+     Llama 70B on the Modal A100 GPU.
+  6. Model generates structured Case Intelligence JSON. Python deterministically
+     strips any unreferenced citation keys.
+  7. Structured CaseIntel is returned to the UI and rendered in dedicated panels
+     (Parties, Obligations, Material Facts, Timeline, Breaches, Contradictions).
+
+9.3 Real-Time Conversational Legal Advisory (SSE)
+  1. User types a query, optionally selecting a mode pill (Auto, Research,
+     Analyze Documents, Build arguments, Full analysis).
+  2. UI opens an SSE stream to POST /api/chat/stream.
+  3. Backend checks active case context and documents from Cloud SQL, selects
+     the specialized system doctrine, and emits an agent_start / step event
+     (e.g., "Building defense arguments & legal positions (DeepSeek Llama 70B)").
+  4. Backend estimates token count and dynamically clamps safe_max_output
+     so input + output never exceeds 7,600 tokens (safely within 8,192).
+  5. DeepSeek Llama 70B on A100 reasons and generates the legal advisory.
+  6. Inverse BPE decoding converts raw byte tokens ('Ġ', 'Ċ') to clean UTF-8.
+  7. Backend streams words as real-time typewriter tokens to the frontend.
+
+--------------------------------------------------------------------------------
+10. CURRENT STATUS AND VERIFICATION
+--------------------------------------------------------------------------------
+
+1. Live Deployments:
+   - Frontend: Live on Vercel (https://ai-for-advocates-xi.vercel.app).
+   - Control Plane: Live on Modal (cicero-backend).
+   - Ingestion & RAG: Live on Modal (cicero-rag-worker, NVIDIA T4 GPU).
+   - High-Parameter Inference: Live on Modal (cicero-llama-inference, NVIDIA A100-80GB GPU).
+   - Data & Storage: Live on Google Cloud (Cloud SQL PostgreSQL + pgvector,
+     Cloud Storage bucket cicero-legal-documents-1575, Pub/Sub topic).
+
+2. Verified Capabilities:
+   - Direct-to-GCS document upload and automated T4 GPU ingestion.
+   - Zero-hallucination Case Intelligence extraction on DeepSeek Llama 70B.
+   - Real-time SSE streaming chat across all 5 specialized mode routes.
+   - Clean UTF-8 detokenization without byte-level BPE character leakage.
+   - Keyless database and cloud security via Google Cloud WIF (Modal OIDC).
+
+--- End of document ---
