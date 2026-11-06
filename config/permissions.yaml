@@ -1,17 +1,24 @@
-# Least-privilege matrix: harness enforces manifest.requested_tools ∩ permissions.yaml
+# Least-privilege capability matrix: harness enforces manifest.requested_tools ∩ permissions.yaml
 grants:
   legal_research:
+    - retrieve_case_evidence
+    - gemini_grounded_search
     - case_search
     - web_search
     - evidence_store
   document_intelligence:
+    - retrieve_case_evidence
     - case_search
     - evidence_store
   argument:
+    - retrieve_case_evidence
     - case_search
     - evidence_store
   counterargument:
+    - retrieve_case_evidence
     - case_search
     - evidence_store
   evaluator:
+    - retrieve_case_evidence
+    - verify_citations
     - citation_verification
