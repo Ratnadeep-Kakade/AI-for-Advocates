@@ -7,22 +7,25 @@
 [![CI](https://img.shields.io/badge/CI-Passing-success?style=flat-square&logo=github-actions)](.github/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?style=flat-square&logo=typescript&logoColor=white)](apps/web/package.json)
-[![Modal](https://img.shields.io/badge/Modal-Serverless_GPU_%26_CPU-00D26A?style=flat-square)](https://modal.com)
+[![Modal](https://img.shields.io/badge/Modal-A100_%26_T4_Serverless-00D26A?style=flat-square)](https://modal.com)
 [![Google Cloud](https://img.shields.io/badge/GCP-Cloud_SQL_%7C_GCS_%7C_WIF-4285F4?style=flat-square&logo=google-cloud&logoColor=white)](deploy/gcp)
 [![Architecture](https://img.shields.io/badge/Architecture-Claude_Skills_%26_Harness-8A2BE2?style=flat-square)](docs/architecture/repo-layout.md)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=flat-square)](LICENSE)
 
 <p align="center">
-  <b>Cicero</b> is an autonomous multi-agent legal deliberation engine engineered for high-stakes litigation analysis. By combining structure-aware legal document intelligence, adversarial agent deliberation, page-anchored evidence verification, and Claude-style instruction skills, Cicero delivers provably grounded legal memorandums with zero tolerance for hallucinations.
+  <b>Cicero</b> is an autonomous multi-agent legal deliberation engine engineered for high-stakes litigation analysis. By combining structure-aware document parsing, hybrid RAG retrieval, adversarial agent deliberation on 70B open weights, page-anchored evidence verification, and Claude-style instruction skills, Cicero delivers provably grounded legal memorandums with zero tolerance for hallucinations.
 </p>
 
 [Key Features](#key-features) •
-[Architecture](#system-architecture) •
+[System Architecture](#system-architecture) •
+[Modal Serverless Topology](#modal-serverless-topology) •
 [Agent Deliberation Pipeline](#agent-deliberation-pipeline) •
-[Claude Skills](#claude-style-skills) •
+[Ingestion & Evidence Retrieval](#ingestion--hybrid-evidence-retrieval) •
+[Token Clamping & Detokenization](#streaming-inference--token-clamping) •
+[Two-Tier Verification](#two-tier-verification-harness) •
+[Case Intelligence Persistence](#case-intelligence-persistence) •
 [Quickstart](#quickstart) •
-[Security & WIF](#security--keyless-identity) •
-[ADRs](#architectural-decision-records-adrs)
+[Security & WIF](#security--keyless-identity)
 
 ---
 
@@ -32,185 +35,216 @@
 
 Modern Large Language Models produce persuasive legal arguments, but they struggle in high-stakes litigation where factual grounding, controlling authority hierarchies, and exact quote fidelity are paramount.
 
-**Cicero solves this through structural separation and adversarial multi-agent deliberation:**
-1. **Evidence Before Opinion:** Agents cannot assert facts without pinned, page-anchored evidence extracted from parsed court pleadings and depositions.
-2. **Adversarial Deliberation:** An **Argument Agent** constructs the affirmative case while an independent **Counterargument Agent** (powered by a distinct model family) attacks factual weaknesses, affirmative defenses, and procedural vulnerabilities.
-3. **Two-Tier Verification:** Deterministic Python algorithms check quotes and citations before an **Evaluator Agent** judges substantive legal merit.
-4. **Claude-Style Skills:** Specialized legal canons and authority classifications are maintained as standalone, versioned `SKILL.md` instruction packages.
+**Cicero solves this through structural separation, hybrid RAG, and adversarial multi-agent deliberation:**
+1. **Evidence Before Opinion:** Agents cannot assert facts without pinned, page-anchored evidence extracted from parsed court pleadings, exhibits, and contracts.
+2. **Adversarial Deliberation:** An **Argument Agent** constructs the affirmative case while an independent **Counterargument Agent** (powered by an independent model family) attacks factual weaknesses, affirmative defenses, and procedural vulnerabilities.
+3. **Open-Weights 70B Reasoning on A100:** Core legal reasoning runs on **DeepSeek-R1-Distill-Llama-70B** hosted on an NVIDIA A100-80GB GPU via vLLM with AWQ quantization.
+4. **Two-Tier Verification:** Deterministic Python algorithms check exact quote substrings and citation Bluebook formats before an **Evaluator Agent** judges substantive legal merit.
+5. **Claude-Style Skills:** Specialized legal canons and authority classifications are maintained as standalone, versioned `SKILL.md` instruction packages.
+6. **Permanent Enterprise Persistence:** Every case, document chunk, execution DAG trace, and Case Intelligence dossier is permanently stored in **Google Cloud SQL PostgreSQL** (`pgvector`), surviving browser refreshes and multi-user sessions.
 
 ---
 
 ## Key Features
 
-- **📄 High-Fidelity Legal Ingestion:** Uses [Docling](https://github.com/DS4SD/docling) on GPU workers to parse complex, multi-column legal filings, docket sheets, exhibits, and deposition transcripts (500+ pages) with full OCR and table reconstruction.
+- **📄 High-Fidelity Legal Ingestion:** Uses [Docling](https://github.com/DS4SD/docling) on GPU workers to parse complex, multi-column legal filings, docket sheets, exhibits, and deposition transcripts with full OCR and table reconstruction.
 - **🔍 Structure-Aware Hybrid RAG:** Combines BAAI BGE-M3 dense and sparse representations with Reciprocal Rank Fusion (RRF), Cross-Encoder re-ranking, and parent-chunk context expansion against PostgreSQL `pgvector`.
-- **⚔️ Multi-Model Adversarial Teams:** Eliminates correlated blind spots by pairing **Meta Muse-Spark** for interpretation and synthesis with **DeepSeek-R1 / Llama-3-70B** for adversarial debate.
+- **⚔️ Multi-Model Adversarial Teams:** Eliminates correlated blind spots by pairing **Meta Muse-Spark 1.3** for interpretation/synthesis with **DeepSeek-R1-Distill-Llama-70B** on Modal A100 for adversarial debate, and **Gemini 2.5 Flash** for live Google Search grounding.
 - **🛡️ Least-Privilege Agent Permissions:** Agents declare requested tools in declarative YAML manifests. The execution harness strictly enforces the intersection $\text{requested} \cap \text{granted}$ defined in central security policies.
-- **📐 Mechanical Architectural Boundaries:** Enforced via `import-linter` in CI to guarantee that the core engine remains pure Python (zero PyTorch, zero FastAPI) and specialist agents never bypass the tool layer to touch the database directly.
+- **⚡ Real-Time SSE Streaming:** Sub-second incremental token streaming (`POST /api/chat/stream`) with real-time agent lifecycle and tool-invocation events.
+- **🔧 Dynamic Token Clamping & BPE Detokenization:** Dynamic token budgeter ($\text{input} + \text{output} \le 7,600$ tokens) ensures safety within the 8,192 vLLM context limit; 3-layer inverse byte detokenizer strips BPE artifacts (`Ġ` $\to$ space, `Ċ` $\to$ `\n`).
 - **🔑 Zero Long-Lived Credentials:** Employs **Keyless Google Cloud Workload Identity Federation (WIF)** between Modal containers, Cloud SQL, and Cloud Storage signed URLs.
 
 ---
 
 ## System Architecture
 
-Cicero is architected as a modular monorepo cleanly divided into presentation, control, stateless GPU inference, and a pure Python domain core.
+Cicero is architected as a modular system cleanly divided into presentation, serverless compute, dedicated ML GPU inference, and an enterprise data plane.
 
 ```mermaid
 graph TD
-    subgraph PresentationPlane ["Presentation Plane (apps/web)"]
+    subgraph PresentationPlane ["Presentation Plane (React + Vite)"]
         UI["React / Vite / Tailwind UI"]
-        Trace["Live Agent Trace & Evidence Drawer"]
+        Workspace["Case Workspace & Single-Column Dossier"]
+        StreamView["Real-time SSE Chat & Trace Viewer"]
     end
 
-    subgraph ControlPlane ["Control Plane (apps/api - Modal CPU)"]
-        FastAPI["FastAPI REST & Polling Gateway"]
-        InProcessHarness["In-Process Async Execution Runner"]
-        Adapters["RAG Port Adapters"]
+    subgraph ModalCompute ["Modal Serverless Compute"]
+        FastAPI["cicero-backend (FastAPI CPU Control Plane)"]
+        RAGWorker["cicero-rag-worker (NVIDIA T4 GPU - Docling + BGE)"]
+        LlamaInference["cicero-llama-inference (NVIDIA A100-80GB - vLLM 70B)"]
     end
 
-    subgraph GPUWorkerPlane ["ML Ingestion Plane (apps/ml-worker - Modal GPU)"]
-        Docling["Docling Parser (OCR & Layout)"]
-        BGEM3["BGE-M3 Dense + Lexical Embedder"]
-        Reranker["Cross-Encoder Reranker"]
+    subgraph ExternalAI ["External AI Services"]
+        MetaAPI["Meta Model API (Muse Spark 1.3)"]
+        GeminiSearch["Gemini 2.5 Flash (Google Search Grounding)"]
     end
 
-    subgraph CoreEngine ["Core Engine (packages/cicero)"]
-        HarnessEngine["DAG Execution Engine"]
-        AgentRuntime["Specialist Agents (Manifests & Schemas)"]
-        DeterministicVal["Deterministic Validation (Quote/Citation)"]
-        SkillsEngine["Claude Skills (<name>/SKILL.md)"]
+    subgraph DataPlane ["Google Cloud Platform (Data & Storage)"]
+        CloudSQL[("Cloud SQL PostgreSQL 16 + pgvector")]
+        GCS[("Cloud Storage Legal Document Vault")]
+        PubSub["Cloud Pub/Sub (Job Dispatch)"]
     end
 
-    subgraph DataPlane ["Data Plane (Google Cloud Platform)"]
-        CloudSQL[("Cloud SQL Postgres + pgvector")]
-        GCS[("GCS Legal Document Vault")]
-    end
-
-    UI -->|HTTPS / REST| FastAPI
-    FastAPI --> CoreEngine
-    InProcessHarness --> HarnessEngine
-    Adapters -->|Modal Remote RPC| GPUWorkerPlane
-    FastAPI -->|WIF Keyless Auth| CloudSQL
-    FastAPI -->|IAM signBlob| GCS
-    HarnessEngine --> DeterministicVal
-    HarnessEngine --> SkillsEngine
+    UI -->|HTTPS / SSE| FastAPI
+    UI -->|Direct Upload Signed URLs| GCS
+    FastAPI -->|WIF Keyless IAM| CloudSQL
+    FastAPI -->|Internal Dispatch| RAGWorker
+    FastAPI -->|Inference RPC / SSE| LlamaInference
+    FastAPI -->|Grounding Queries| GeminiSearch
+    FastAPI -->|Intent / Synthesis| MetaAPI
+    RAGWorker -->|Embeddings & Extraction| CloudSQL
 ```
 
 ---
 
-## Monorepo Directory Layout
+## Modal Serverless Topology
 
-The repository is organized following modern workspace conventions (`uv` for Python workspaces, `pnpm` for TypeScript):
+The platform deploys across three specialized serverless applications on [Modal](https://modal.com):
 
-```text
-cicero/
-├── apps/
-│   ├── web/                     # React 18, Vite, Tailwind CSS web application
-│   │   ├── src/                 # Interactive chat, case workspace, evidence viewer
-│   │   └── types/               # TypeScript interfaces auto-generated from FastAPI OpenAPI
-│   ├── api/                     # FastAPI HTTP application & Modal deployment host
-│   │   ├── src/cicero_api/      # Routes, dependencies, middleware, and ML port adapters
-│   │   └── modal_app.py         # Modal CPU app definition (fastapi_app + runner)
-│   └── ml-worker/               # Stateless Modal GPU container (T4 / A10G)
-│       ├── src/cicero_ml/       # Docling parsing, BGE-M3 embedding, and Cross-Encoder services
-│       └── modal_app.py         # Isolated PyTorch & CUDA dependencies
-├── packages/
-│   └── cicero/                  # Pure Core Library (Zero PyTorch, Zero FastAPI)
-│       ├── src/cicero/
-│       │   ├── domain/          # Contracts: AgentResult, EvidenceRef, ExecutionPlan, TaskSpec
-│       │   ├── core/            # Config, telemetry, structured logging, error taxonomy
-│       │   ├── storage/         # StorageService protocol & GCS WIF implementation
-│       │   ├── persistence/     # SQLAlchemy 2.0 async models, connection, repositories
-│       │   ├── llm/             # Gateway (concurrency semaphore & 429 backoff) & providers
-│       │   ├── rag/             # Ports (protocols), chunking, structural processing, retrieval
-│       │   ├── tools/           # Central tool registry, case search, web search
-│       │   ├── skills/          # Claude Skills directories (<name>/SKILL.md)
-│       │   ├── memory/          # Explicit division: session_memory vs. case_memory
-│       │   ├── hooks/           # HookEvent lifecycle bus (pre/post task, tool, validate)
-│       │   ├── harness/         # Parallel DAG execution engine & state machine
-│       │   │   └── validation/  # Deterministic QuoteMatcher, CitationValidator, EvidenceResolver
-│       │   ├── agents/          # Specialized agent manifests (agent.yaml), prompts, and schemas
-│       │   └── orchestrator/    # Request interpreter, DAG planner, and brief synthesizer
-│       ├── migrations/          # Alembic database migration scripts
-│       ├── tests/               # Unit and integration test suites
-│       └── .importlinter        # Compile-time architectural boundary contracts
-├── config/                      # Declarative system configurations
-│   ├── models.yaml              # Multi-model role allocation and concurrency quotas
-│   ├── permissions.yaml         # Central security capability matrix
-│   ├── workflows.yaml           # Predefined orchestrator DAG execution flows
-│   └── platform_context.yaml    # Federal/State court rules, jurisdictions, Bluebook configs
-├── evals/                       # Ground-truth benchmarks and retrieval Hit@K evaluations
-├── deploy/gcp/                  # Terraform IaC for Cloud SQL pgvector, GCS, and WIF pool
-├── docs/                        # Architecture documentation and Architectural Decision Records (ADRs)
-├── scripts/                     # Seed scripts, OpenAPI type generation, smoke tests
-├── docker-compose.yml           # Local PostgreSQL 16 + pgvector environment
-└── pyproject.toml               # uv monorepo workspace configuration
-```
+| App Name | Hardware Profile | Responsibilities | Key Technologies |
+| :--- | :--- | :--- | :--- |
+| **`cicero-backend`** | Serverless CPU (Debian Slim, Python 3.12) | FastAPI REST API, SSE streaming gateway, Cloud SQL connection pool, agent orchestrator, task state machine. | FastAPI, SQLAlchemy 2.0, Asyncpg, Google Cloud SQL Connector |
+| **`cicero-rag-worker`** | NVIDIA T4 GPU (16GB VRAM) | Document parsing, structural legal hierarchy extraction, BGE-M3 dense/lexical embeddings, BGE Cross-Encoder reranking. | IBM Docling, PyTorch, Hugging Face Transformers, pgvector |
+| **`cicero-llama-inference`** | NVIDIA A100-80GB SXM GPU | High-throughput open-weights legal reasoning and document intelligence inference. | vLLM 0.6+, AWQ Quantization, FlashInfer, CUDA Graph Capture |
 
 ---
 
 ## Agent Deliberation Pipeline
 
-Cicero rejects the unconstrained "chat loop" approach. Agent executions operate under a deterministic state machine managing a dynamic Directed Acyclic Graph (DAG):
+Cicero rejects unconstrained ReAct loops in favor of a deterministic state machine managing a dynamic Directed Acyclic Graph (DAG):
 
 ```mermaid
-stateDiagram-v2
-    [*] --> PENDING
-    PENDING --> INTERPRETING
-    INTERPRETING --> WAITING_FOR_INPUT : Ambiguity Detected
-    WAITING_FOR_INPUT --> INTERPRETING : User Clarification
-    INTERPRETING --> PLANNING : Intent & Scope Resolved
-    PLANNING --> RUNNING : ExecutionPlan DAG Generated
-    RUNNING --> RETRYING : Transient Error
-    RETRYING --> RUNNING
-    RUNNING --> VALIDATING : Evidence Packs Assembled
-    VALIDATING --> SYNTHESIZING : VerificationReport Passed
-    VALIDATING --> RUNNING : Validation Failure (Reroute)
-    SYNTHESIZING --> COMPLETED : Legal Memorandum Synthesized
-    RUNNING --> FAILED : Budget / Timeout Exceeded
-    RUNNING --> CANCELLED : User Abort
+flowchart TD
+    UserQuery(["User Legal Query"]) --> Interpreter["Request Interpreter (Meta Muse Spark 1.3)"]
+    Interpreter --> Planner["Central Orchestrator (DAG Planner)"]
+    Planner --> PlanDAG{"Execution Plan (Dynamic DAG)"}
+
+    PlanDAG --> DocIntel["Document Intelligence Agent (Modal A100)"]
+    PlanDAG --> Argument["Argument Agent (Modal A100)"]
+    PlanDAG --> Counter["Counterargument Agent (Modal A100)"]
+    PlanDAG --> Researcher["Legal Researcher (Modal A100 + Gemini Grounding)"]
+
+    DocIntel & Argument & Counter & Researcher --> Evaluator["Cognitive Evaluator Agent (Modal A100)"]
+    Evaluator --> HarnessCheck{"Verification Passed?"}
+    HarnessCheck -- Yes --> Synthesizer["Final Response Synthesizer (Muse Spark 1.3)"]
+    HarnessCheck -- No --> FlagIssues["Flag Evidentiary Gaps & Refine"]
+    Synthesizer --> VerifiedAnswer(["Verified Legal Response with Pinpoint Citations"])
 ```
 
 ### Specialized Execution Strategies
 
-Following Anthropic's research on effective AI systems, agents use strategies tailored to their cognitive role:
+Following Anthropic's research on effective AI architectures, agents use strategies tailored to their cognitive role:
 
-| Specialist Agent | Strategy | Role & Model Allocation | Budget / Guardrail |
+| Specialist Agent | Strategy | Hardware / Model | Guardrail & Token Budget |
 | :--- | :--- | :--- | :--- |
-| **Request Interpreter** | `single_shot` | Classifies query intent, identifies jurisdiction, requests user clarification if ambiguous (*Meta Muse-Spark*). | 1 turn, strict schema |
-| **Legal Researcher** | `tool_loop` | Autonomous budgeted search across uploaded discovery files and external statutory databases (*Llama 3 70B*). | Max 8 turns, token budget |
-| **Document Intelligence**| `map_reduce` | Section-level parallel extraction across hundreds of pages (*Llama 3 70B*). | Bounded concurrency cap |
-| **Argument Agent** | `single_shot` | Builds the primary legal thesis supported by verified evidence references (*Meta Muse-Spark*). | Grounded input pack |
-| **Counterargument Agent**| `single_shot` | Adversarially attacks claims, surfaces contradictory facts and procedural bars (*DeepSeek-R1 / Llama 3*). | Independent model family |
-| **Evaluator** | `single_shot` | Evaluates legal strength, controlling authority weight, and sufficiency over a `VerificationReport`. | Zero ungrounded assertions |
+| **Request Interpreter** | `single_shot` | Meta Muse-Spark 1.3 | Classifies legal intent, detects venue, clarifies ambiguities. |
+| **Document Intelligence**| `map_reduce` | Modal A100 &bull; Llama 70B | Concurrent RAG extraction; clamps output to $\le 3,000$ tokens. |
+| **Legal Researcher** | `tool_loop` | Modal A100 + Gemini 2.5 | Autonomous search across case discovery and statutory precedents. |
+| **Argument Agent** | `single_shot` | Modal A100 &bull; Llama 70B | Builds affirmative legal thesis pinned to verified exhibits. |
+| **Counterargument Agent**| `single_shot` | Modal A100 &bull; Llama 70B | Attacks factual premises, procedural defaults, and affirmative defenses. |
+| **Evaluator Agent** | `single_shot` | Modal A100 &bull; Llama 70B | Evaluates controlling vs. persuasive authority weight over a `VerificationReport`. |
+| **Synthesizer** | `single_shot` | Meta Muse-Spark 1.3 | Synthesizes verified multi-agent findings into a final court-ready response. |
 
 ---
 
-## Two-Tier Verification
+## Ingestion & Hybrid Evidence Retrieval
 
-Cicero does not rely on an LLM to check its own work. Verification is bifurcated:
+```mermaid
+flowchart TD
+    subgraph Stage1 ["Stage 1 · Document Ingestion"]
+        Doc[PDF / DOCX Legal Documents] --> Docling["Docling Parser (OCR, Layout, Tables)"]
+        Docling --> Struct["Structural Processing (Hierarchy, Definitions)"]
+        Struct --> Chunking["Parent / Child Chunking"]
+        Chunking --> BGEM3["BGE-M3 Embeddings (Dense + Lexical)"]
+        BGEM3 --> CloudSQL[("Cloud SQL PostgreSQL (pgvector + FTS)")]
+    end
+
+    subgraph Stage2 ["Stage 2 · Evidence Retrieval"]
+        Query[Legal Query] --> MultiLens["Multi-Lens Candidate Retrieval (Dense + Lexical + Exact)"]
+        CloudSQL -.-> MultiLens
+        MultiLens --> RRF["Reciprocal Rank Fusion (RRF)"]
+        RRF --> Rerank["BGE Cross-Encoder Reranking"]
+        Rerank --> Expand["Context Expansion (Token-Budgeted Packing)"]
+        Expand --> Validate["Evidence Validation (Quote Matching, Page Anchoring)"]
+        Validate --> EvidencePack["Verified EvidencePack [E1, E2, ...]"]
+    end
+
+    EvidencePack --> Agents["Legal Specialist Agents"]
+```
+
+---
+
+## Streaming Inference & Token Clamping
+
+To prevent vLLM context overflow on 70B models and ensure smooth UI streaming:
+
+```mermaid
+flowchart LR
+    UserQuery["Legal Query"] --> WebUI["React Frontend"]
+    WebUI -->|POST /api/chat/stream| FastAPI["FastAPI Gateway"]
+    FastAPI --> ContextPrep["Context Preparation & System Instructions"]
+    ContextPrep --> TokenBudgeter["Dynamic Token Budgeter (Input + Output <= 7,600)"]
+    TokenBudgeter --> Gateway["Model Gateway"]
+    Gateway --> vLLM["vLLM on Modal A100 (DeepSeek-R1-Distill-Llama-70B)"]
+    vLLM --> Detokenizer["3-Layer Inverse BPE Detokenizer (0x20, 0x0A)"]
+    Detokenizer --> SSE["SSE Stream (/api/chat/stream)"]
+    SSE --> LiveRender["Live Markdown & Evidence Cards Rendered in UI"]
+```
+
+- **Dynamic Token Budgeter:** Clamps `safe_max_output = max(512, min(3000, int(7600 - estimated_input_tokens)))`, ensuring that prompt tokens and generation tokens never exceed the 8,192 hardware limit.
+- **Inverse BPE Detokenization:** DeepSeek/Llama byte-level tokenizers emit raw byte sequences (`0x20 'Ġ'` for space, `0x0A 'Ċ'` for newline). Cicero incorporates a 3-layer detokenizer across the provider, API stream, and React component to eliminate corrupt tokens before rendering.
+
+---
+
+## Two-Tier Verification Harness
+
+Cicero does not rely on an LLM to check its own work. Verification is strictly bifurcated:
 
 ```
-┌────────────────────────────────┐
-│   Agent Output (Citations)     │
-└───────────────┬────────────────┘
-                │
-                ▼
+┌────────────────────────────────────────────────────────┐
+│  Agent Output: Claims, Quotes, Citations, References   │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            ▼
 ┌────────────────────────────────────────────────────────┐
 │  Tier 1: Deterministic Harness Validation (Python)     │
-│  - QuoteMatcher: Exact substring & character matching  │
+│  - QuoteMatcher: Exact character and substring match   │
 │  - CitationValidator: Bluebook / Docket format check   │
 │  - EvidenceResolver: Validates document IDs in DB      │
-└───────────────┬────────────────────────────────────────┘
-                │
-                ▼ Emits VerificationReport (JSON)
+└───────────────────────────┬────────────────────────────┘
+                            │
+                            ▼ Emits VerificationReport (JSON)
 ┌────────────────────────────────────────────────────────┐
-│  Tier 2: Cognitive Evaluator Agent (LLM)               │
-│  - Analyzes legal sufficiency of propositions          │
+│  Tier 2: Cognitive Evaluator Agent (Llama 70B)         │
+│  - Assesses legal sufficiency of propositions          │
 │  - Weighs binding mandatory vs. persuasive authority   │
-│  - Recommends approval or flags evidentiary gaps       │
-└────────────────────────────────────────────────────────┘
+│  - Identifies evidentiary gaps and missing documents   │
+└───────────────────────────┬────────────────────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+        [Sufficient]                [Insufficient]
+    Approved for Synthesis      Evidentiary Gaps Flagged
 ```
+
+---
+
+## Case Intelligence Persistence
+
+Case intelligence is permanently persisted and automatically restored across browser sessions:
+
+- **Database Storage:** Outputs from `POST /api/cases/{case_id}/analyze` are recorded in PostgreSQL tables `agents.executions` and `agents.agent_results`.
+- **Auto-Hydration:** `GET /api/cases/{case_id}/intel` loads the latest stored intelligence instantly upon opening a case workspace or hard-refreshing (Ctrl+F5).
+- **Single-Column Dossier:** The UI presents extracted intelligence in a clean, vertical dossier:
+  1. Executive Summary
+  2. Parties & Roles
+  3. Important Dates & Deadlines
+  4. Contractual Obligations
+  5. Material Facts
+  6. Legal Issues & Potential Breaches
+  7. Contradictions Across Documents
+  8. Missing Information
 
 ---
 
@@ -246,29 +280,6 @@ The harness dynamic loader reads `activation` patterns and injects the correspon
 
 ---
 
-## Mechanical Boundary Enforcement
-
-To prevent architectural drift, Cicero enforces compilation rules via **Import Linter** contracts in CI ([`packages/cicero/.importlinter`](packages/cicero/.importlinter)):
-
-```ini
-[importlinter:contract:core-stays-light]
-name = Core must not depend on web, GPU, or Modal SDKs
-type = forbidden
-source_modules = cicero
-forbidden_modules = fastapi, torch, modal, docling
-
-[importlinter:contract:agents-no-direct-data-access]
-name = Agents use tools and gateway, never data layers or providers directly
-type = forbidden
-source_modules = cicero.agents
-forbidden_modules = cicero.persistence, cicero.storage, cicero.llm.providers
-```
-
-- **`core-stays-light`**: Ensures `packages/cicero` can be installed in lightweight CPU environments and tested in under 2 seconds.
-- **`agents-no-direct-data-access`**: Guarantees agents communicate exclusively through tool interfaces, preventing SQL injection and security bypasses.
-
----
-
 ## Security & Keyless Identity
 
 Cicero eliminates long-lived service account JSON keys by using **GCP Workload Identity Federation (WIF)**:
@@ -287,10 +298,9 @@ Cicero eliminates long-lived service account JSON keys by using **GCP Workload I
 - Docker & Docker Compose (for local PostgreSQL with `pgvector`)
 - A [Modal](https://modal.com) account (for cloud deployments)
 
-### 1. Clone & Set Up Workspaces
+### 1. Set Up Workspaces
 
 ```bash
-git clone https://github.com/your-org/cicero.git
 cd cicero
 
 # Install Python workspace dependencies
@@ -314,14 +324,19 @@ cd packages/cicero
 uv run alembic upgrade head
 ```
 
-### 4. Run the Test Suite
+### 4. Deploying to Modal
+
+To deploy all three serverless applications on Modal:
 
 ```bash
-# Run lightning-fast unit tests using the fake LLM provider and mock ports
-uv run pytest packages/cicero/tests/unit
+# 1. Deploy the NVIDIA A100 Llama 70B Inference Server
+modal deploy backend/deploy/modal/llama_inference.py
 
-# Run mechanical boundary enforcement check
-uv run lint-imports
+# 2. Deploy the NVIDIA T4 GPU RAG Worker (Docling + Embedder)
+modal deploy backend/deploy/modal/rag_worker_app.py
+
+# 3. Deploy the FastAPI CPU Control Plane
+modal deploy backend/deploy/modal/api_app.py
 ```
 
 ### 5. Start Development Servers
@@ -337,34 +352,6 @@ pnpm dev
 ```
 
 Visit `http://localhost:5173` to explore the Cicero workspace.
-
----
-
-## Architectural Decision Records (ADRs)
-
-Key architectural choices are formally documented in [`docs/adr/`](docs/adr/):
-
-| ADR | Title | Status | Rationale Summary |
-| :--- | :--- | :--- | :--- |
-| **[ADR-0001](docs/adr/0001-fastapi-on-modal.md)** | FastAPI on Modal CPU | Accepted | Eliminates idle infrastructure cost; autoscale down to zero while supporting long async agent executions. |
-| **[ADR-0002](docs/adr/0002-provider-independent-model-gateway.md)** | Provider-Independent Model Gateway | Accepted | Unified abstraction supporting Meta Llama API, DeepSeek, and local fake test providers with rate-limiting. |
-| **[ADR-0003](docs/adr/0003-cloud-sql-python-connector.md)** | Cloud SQL Asyncpg Connector | Accepted | Native IAM/WIF database connectivity with zero SSL certificate maintenance. |
-| **[ADR-0004](docs/adr/0004-workload-identity-federation.md)** | Keyless GCP Workload Identity Federation | Accepted | Strict keyless authentication; zero static service-account JSON keys in production. |
-| **[ADR-0005](docs/adr/0005-harness-execution-strategies-and-skills.md)** | Execution Strategies & Claude Skills | Accepted | Avoids generic ReAct loops; matches agents to `tool_loop`, `map_reduce`, or `single_shot`. |
-| **[ADR-0006](docs/adr/0006-two-tier-validation-and-evaluation.md)** | Two-Tier Verification Architecture | Accepted | Deterministic Python substring and citation verification before LLM cognitive review. |
-
----
-
-## Contributing
-
-We welcome contributions from legal technologists, ML engineers, and systems architects. Please review [`SECURITY.md`](SECURITY.md) before submitting security-sensitive pull requests.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/statutory-graph`)
-3. Ensure linter and tests pass (`uv run ruff check . && uv run pytest`)
-4. Commit your changes (`git commit -m 'feat: Add statutory graph parser'`)
-5. Push to the branch (`git push origin feature/statutory-graph`)
-6. Open a Pull Request
 
 ---
 
