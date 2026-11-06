@@ -19,7 +19,7 @@ from cicero.agents.common import (
     collect_evidence_items,
     generate_structured,
 )
-from cicero.models.contracts import ModelRole
+from cicero.llm.contracts import ModelRole
 
 logger = logging.getLogger(__name__)
 

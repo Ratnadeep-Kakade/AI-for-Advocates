@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 
-from cicero.config import Settings
+from cicero.core.config import Settings
 
 
 class RagServiceUnavailable(RuntimeError):

@@ -35,5 +35,6 @@ packages = ["src/cicero"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 addopts = "-ra --basetemp=.pytest_tmp"
 asyncio_mode = "auto"

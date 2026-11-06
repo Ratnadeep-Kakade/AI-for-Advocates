@@ -12,7 +12,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
-from cicero.models.contracts import ChatMessage, GenerationRequest, ModelRole
+from cicero.llm.contracts import ChatMessage, GenerationRequest, ModelRole
 
 
 class Gateway(Protocol):

@@ -1,7 +1,7 @@
 import httpx
 from pydantic import SecretStr
 
-from cicero.models.providers.openai_compatible import OpenAICompatibleProvider
+from .openai_compatible import OpenAICompatibleProvider
 
 
 class MetaModelProvider(OpenAICompatibleProvider):

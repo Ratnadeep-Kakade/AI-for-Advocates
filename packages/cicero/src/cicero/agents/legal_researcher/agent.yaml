@@ -1,3 +1,4 @@
+id: legal_researcher
 agent_id: legal_researcher
 name: Legal Researcher
 version: "1.0"
@@ -12,6 +13,22 @@ capabilities:
   - Identify favourable and adverse authorities
   - Detect conflicting authorities
 model_role: legal_researcher
+execution_strategy: tool_loop
+limits:
+  max_turns: 8
+  token_budget: 60000
+  timeout_s: 300
+requested_tools:
+  - retrieve_case_evidence
+  - gemini_grounded_search
+skills:
+  - authority_classification
+verification:
+  - citation_exists
+  - quote_matches_source
+on_failure:
+  retries: 2
+  escalate_to: orchestrator
 tools:
   - retrieve_case_evidence
   - gemini_grounded_search

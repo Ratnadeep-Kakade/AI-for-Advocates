@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from cicero.rag.argon.schemas import EvidenceItem, QueryPlan, ValidationStatus
+from cicero.rag.ingestion.schemas import EvidenceItem, QueryPlan, ValidationStatus
 
 # Chunk types that may receive dense embeddings and enter hybrid retrieval
 # (prototype: only indexable types; parent_section/table_summary do not).

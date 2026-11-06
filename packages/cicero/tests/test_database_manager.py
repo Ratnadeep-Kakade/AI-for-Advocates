@@ -5,8 +5,8 @@ from pydantic import SecretStr
 
 from cicero.auth import google_credentials
 from cicero.config import Settings
-from cicero.db import connection as db_connection
-from cicero.db.connection import DatabaseConfigurationError
+from cicero.persistence import database as db_connection
+from cicero.persistence.database import DatabaseConfigurationError
 
 
 class FakeConnector:

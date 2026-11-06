@@ -15,14 +15,14 @@ from pydantic import BaseModel, ConfigDict
 
 from cicero.agents.base import AgentContext, AgentResult, BaseAgent
 from cicero.agents.common import Gateway, generate_structured
-from cicero.agents.legal_researcher.prompts import (
+from cicero.agents.legal_research.prompts import (
     ANALYSIS_SYSTEM_PROMPT,
     PROMPT_VERSION,
     QUERY_SYSTEM_PROMPT,
     build_analysis_prompt,
 )
-from cicero.agents.legal_researcher.schemas import ResearchFindings, validate_findings
-from cicero.models.contracts import ModelRole
+from cicero.agents.legal_research.schemas import ResearchFindings, validate_findings
+from cicero.llm.contracts import ModelRole
 from cicero.tools.web_search import SearchBundle
 
 logger = logging.getLogger(__name__)

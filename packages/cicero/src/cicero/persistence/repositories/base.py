@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cicero.db.base import Base
+from cicero.persistence.base import Base
 
 
 class BaseRepository[ModelT: Base, IdentifierT: (UUID, str, int)]:

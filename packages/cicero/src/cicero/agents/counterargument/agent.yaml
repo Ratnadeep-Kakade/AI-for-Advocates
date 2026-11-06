@@ -1,18 +1,28 @@
+id: counterargument
 agent_id: counterargument
 name: Counterargument Agent
 version: "1.0"
 description: >
-  Independently analyses the same evidence from opposing counsel's perspective,
-  then challenges the Argument Agent's output in a second pass. Searches for
-  contradictory facts, unfavourable authorities, alternative interpretations,
-  procedural weaknesses and missing evidence. Runs on
-  DeepSeek-R1-Distill-Llama-70B in a separate execution context.
+  Adversarially attacks the argument output, finding weaknesses, counterarguments,
+  and alternative interpretations using case intelligence and research findings.
+  Runs on DeepSeek-R1 / Llama 3 70B.
 capabilities:
-  - Construct opposing legal arguments
-  - Challenge proposed arguments
-  - Identify contradictory evidence
-  - Identify adverse authorities
+  - Construct counterarguments
+  - Identify legal vulnerabilities
+  - Surface affirmative defenses
 model_role: counterargument
+execution_strategy: single_shot
+limits:
+  max_turns: 1
+  token_budget: 32000
+  timeout_s: 180
+requested_tools:
+  - retrieve_case_evidence
+skills:
+  - authority_classification
+verification:
+  - citation_exists
+  - quote_matches_source
 tools:
   - retrieve_case_evidence
 inputs:

@@ -11,9 +11,9 @@ import json
 from typing import Any
 
 from cicero.agents.common import Gateway, StructuredOutputError, generate_structured
-from cicero.models.contracts import ChatMessage, GenerationRequest, ModelRole
+from cicero.llm.contracts import ChatMessage, GenerationRequest, ModelRole
 from cicero.orchestrator.schemas import ExecutionPlan, TaskSpecification, default_plan
-from cicero.registry.loader import RuntimeRegistry
+from cicero.harness.registry_loader import RuntimeRegistry
 
 NON_TASK_AGENTS = frozenset({"interpreter", "orchestrator"})
 

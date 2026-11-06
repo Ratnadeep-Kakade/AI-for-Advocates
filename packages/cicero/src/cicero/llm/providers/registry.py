@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 
-from cicero.models.errors import ModelConfigurationError
-from cicero.models.providers.base import ModelProvider
+from cicero.core.exceptions import ModelConfigurationError
+from .base import ModelProvider
 
 
 class ProviderRegistry:

@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import Protocol
 
-from cicero.models.contracts import ChatMessage, TokenUsage
+from cicero.llm.contracts import ChatMessage, TokenUsage
 
 
 class ProviderGeneration(Protocol):
@@ -21,5 +21,6 @@ class ModelProvider(Protocol):
         messages: Sequence[ChatMessage],
         max_output_tokens: int,
         temperature: float | None = None,
+        reasoning_effort: str | None = None,
         routing_affinity_key: str | None = None,
     ) -> ProviderGeneration: ...

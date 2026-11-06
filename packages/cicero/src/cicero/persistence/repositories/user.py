@@ -5,8 +5,8 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cicero.db.models.auth import User
-from cicero.db.repositories.base import BaseRepository
+from cicero.persistence.models.auth import User
+from cicero.persistence.repositories.base import BaseRepository
 
 
 class UserRepository(BaseRepository[User, UUID]):

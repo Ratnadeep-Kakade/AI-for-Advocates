@@ -5,9 +5,10 @@ from __future__ import annotations
 EXECUTION_TRANSITIONS: dict[str, frozenset[str]] = {
     "pending": frozenset({"interpreting", "failed", "cancelled"}),
     "interpreting": frozenset({"waiting_for_input", "planning", "failed"}),
-    "waiting_for_input": frozenset({"planning", "cancelled"}),
+    "waiting_for_input": frozenset({"interpreting", "planning", "cancelled"}),
     "planning": frozenset({"running", "failed"}),
-    "running": frozenset({"validating", "failed", "cancelled"}),
+    "running": frozenset({"validating", "retrying", "failed", "cancelled"}),
+    "retrying": frozenset({"running", "failed", "cancelled"}),
     "validating": frozenset({"running", "completed", "failed"}),
     "completed": frozenset(),
     "failed": frozenset(),

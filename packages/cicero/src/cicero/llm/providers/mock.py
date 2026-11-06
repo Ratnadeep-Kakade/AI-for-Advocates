@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from uuid import uuid4
 
-from cicero.models.contracts import ChatMessage, TokenUsage
+from cicero.llm.contracts import ChatMessage, TokenUsage
 
 
 class MockGeneration:
@@ -27,9 +27,10 @@ class MockModelProvider:
         messages: Sequence[ChatMessage],
         max_output_tokens: int,
         temperature: float | None = None,
+        reasoning_effort: str | None = None,
         routing_affinity_key: str | None = None,
     ) -> MockGeneration:
-        del max_output_tokens, temperature, routing_affinity_key
+        del max_output_tokens, temperature, reasoning_effort, routing_affinity_key
         last_user_message = next(
             (message.content for message in reversed(messages) if message.role == "user"),
             "No user message supplied.",

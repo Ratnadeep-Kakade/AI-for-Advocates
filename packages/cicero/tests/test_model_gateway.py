@@ -223,22 +223,47 @@ async def test_provider_does_not_retry_bad_request() -> None:
 
 
 def test_settings_provider_allocation_matches_architecture() -> None:
-    # Demo default: every role runs on Muse Spark so the full flow works
-    # end-to-end. The four specialists move to DeepSeek/vLLM by env switch
-    # (see the next test) once cicero-llama-inference is deployed.
+    # Interpreter, orchestrator, and document intelligence run on Meta's Muse-Spark.
+    # The four specialised reasoning agents run DeepSeek-R1-Distill-Llama-70B on Modal's A100.
     settings = Settings(_env_file=None)
     assert settings.interpreter_provider == "meta"
     assert settings.orchestrator_provider == "meta"
     assert settings.document_intelligence_provider == "meta"
-    assert settings.legal_researcher_provider == "meta"
-    assert settings.argument_provider == "meta"
-    assert settings.counterargument_provider == "meta"
-    assert settings.evaluator_provider == "meta"
+    assert settings.legal_researcher_provider == "vllm_modal"
+    assert settings.argument_provider == "vllm_modal"
+    assert settings.counterargument_provider == "vllm_modal"
+    assert settings.evaluator_provider == "vllm_modal"
+    assert settings.legal_researcher_model == "deepseek-r1-distill-llama-70b"
+    assert settings.argument_model == "deepseek-r1-distill-llama-70b"
 
 
 def test_settings_allow_provider_switch_through_environment(monkeypatch) -> None:
-    monkeypatch.setenv("CICERO_ARGUMENT_PROVIDER", "vllm_modal")
-    monkeypatch.setenv("CICERO_ARGUMENT_MODEL", "deepseek-r1-distill-llama-70b")
+    monkeypatch.setenv("CICERO_ARGUMENT_PROVIDER", "mock")
+    monkeypatch.setenv("CICERO_ARGUMENT_MODEL", "mock-model")
     settings = Settings(_env_file=None)
-    assert settings.argument_provider == "vllm_modal"
-    assert settings.argument_model == "deepseek-r1-distill-llama-70b"
+    assert settings.argument_provider == "mock"
+    assert settings.argument_model == "mock-model"
+
+
+@pytest.mark.asyncio
+async def test_gateway_falls_back_to_meta_when_vllm_fails() -> None:
+    class FailingProvider:
+        name = "vllm_modal"
+
+        async def generate(self, **kwargs):
+            raise ModelProviderError("vLLM connection refused", provider="vllm_modal", retryable=False)
+
+    gateway = ModelGateway(
+        providers={"meta": FakeProvider("meta"), "vllm_modal": FailingProvider()},
+        role_targets={
+            ModelRole.ARGUMENT: ("vllm_modal", "deepseek-r1-distill-llama-70b"),
+        },
+    )
+    result = await gateway.generate(
+        GenerationRequest(
+            role=ModelRole.ARGUMENT,
+            messages=[ChatMessage(role="user", content="Draft an argument.")],
+        )
+    )
+    assert result.provider == "meta"
+    assert result.text == "ready"

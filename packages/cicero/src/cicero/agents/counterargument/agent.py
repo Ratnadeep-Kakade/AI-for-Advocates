@@ -29,7 +29,7 @@ from cicero.agents.counterargument.schemas import (
     CounterargumentOutput,
     validate_counterargument_output,
 )
-from cicero.models.contracts import ModelRole
+from cicero.llm.contracts import ModelRole
 
 logger = logging.getLogger(__name__)
 

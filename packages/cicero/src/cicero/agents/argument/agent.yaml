@@ -1,15 +1,28 @@
+id: argument
 agent_id: argument
 name: Argument Agent
 version: "1.0"
 description: >
   Constructs the strongest evidence-based legal arguments for the user's
   position from case intelligence, retrieved evidence and research findings.
-  Runs on DeepSeek-R1-Distill-Llama-70B.
+  Runs on Muse-Spark.
 capabilities:
   - Construct legal arguments
   - Link propositions to evidence and authorities
   - Identify vulnerabilities in its own position
 model_role: argument
+execution_strategy: single_shot
+limits:
+  max_turns: 1
+  token_budget: 32000
+  timeout_s: 180
+requested_tools:
+  - retrieve_case_evidence
+skills:
+  - authority_classification
+verification:
+  - citation_exists
+  - quote_matches_source
 tools:
   - retrieve_case_evidence
 inputs:

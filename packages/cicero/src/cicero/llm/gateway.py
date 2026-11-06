@@ -2,17 +2,17 @@ import logging
 from collections.abc import Mapping
 from time import monotonic
 
-from cicero.config import Settings, get_settings
-from cicero.models.contracts import GenerationRequest, GenerationResult, ModelRole
-from cicero.models.errors import ModelConfigurationError
-from cicero.models.providers import (
+from cicero.core.config import Settings, get_settings
+from cicero.core.exceptions import ModelConfigurationError
+from cicero.llm.contracts import GenerationRequest, GenerationResult, ModelRole
+from cicero.llm.providers import (
     MetaModelProvider,
     MockModelProvider,
     ProviderRegistry,
     VLLMModalProvider,
 )
-from cicero.models.providers.base import ModelProvider
-from cicero.models.providers.openai_compatible import OpenAICompatibleProvider
+from cicero.llm.providers.base import ModelProvider
+from cicero.llm.providers.openai_compatible import OpenAICompatibleProvider
 
 logger = logging.getLogger(__name__)
 
@@ -109,13 +109,40 @@ class ModelGateway:
         provider = self.providers.get(provider_name)
 
         started = monotonic()
-        response = await provider.generate(
-            model=model_id,
-            messages=request.messages,
-            max_output_tokens=request.max_output_tokens,
-            temperature=request.temperature,
-            routing_affinity_key=request.routing_affinity_key,
-        )
+        try:
+            response = await provider.generate(
+                model=model_id,
+                messages=request.messages,
+                max_output_tokens=request.max_output_tokens,
+                temperature=request.temperature,
+                reasoning_effort=request.reasoning_effort,
+                routing_affinity_key=request.routing_affinity_key,
+            )
+        except Exception as exc:
+            # If the specialised vllm_modal GPU service fails (e.g. cold-start, timeout, or unavailable),
+            # gracefully fall back to the Meta model provider so execution never fails.
+            if provider_name == "vllm_modal" and self.providers.contains("meta"):
+                fallback_provider = self.providers.get("meta")
+                settings = get_settings()
+                fallback_model = settings.meta_model_id or "muse-spark-1.3"
+                logger.warning(
+                    "vllm_modal generation failed for role '%s': %s; falling back to meta provider with '%s'",
+                    request.role.value,
+                    exc,
+                    fallback_model,
+                )
+                provider_name = "meta"
+                model_id = fallback_model
+                response = await fallback_provider.generate(
+                    model=model_id,
+                    messages=request.messages,
+                    max_output_tokens=request.max_output_tokens,
+                    temperature=request.temperature,
+                    reasoning_effort=request.reasoning_effort,
+                    routing_affinity_key=request.routing_affinity_key,
+                )
+            else:
+                raise
         duration_ms = round((monotonic() - started) * 1000)
 
         # Never log prompts, completions, or client document content.

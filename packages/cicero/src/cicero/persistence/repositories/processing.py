@@ -8,12 +8,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cicero.db.models.documents import (
+from cicero.persistence.models.documents import (
     DocumentChunk,
     DocumentExtraction,
     DocumentProcessingRun,
 )
-from cicero.db.repositories.base import BaseRepository
+from cicero.persistence.repositories.base import BaseRepository
 
 PROCESSING_STATUSES = frozenset({"pending", "processing", "completed", "failed"})
 

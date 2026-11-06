@@ -10,7 +10,7 @@ from google.api_core.exceptions import NotFound, PreconditionFailed
 from google.cloud import storage
 
 from cicero.auth.google_credentials import GoogleCredentialsProvider
-from cicero.config import Settings
+from cicero.core.config import Settings
 
 
 class StorageConfigurationError(RuntimeError):

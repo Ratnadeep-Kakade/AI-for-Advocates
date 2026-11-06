@@ -15,7 +15,7 @@ from cicero.auth.google_credentials import (
     GoogleCredentialsConfigurationError,
     GoogleCredentialsProvider,
 )
-from cicero.config import Settings
+from cicero.core.config import Settings
 
 
 class DatabaseConfigurationError(RuntimeError):

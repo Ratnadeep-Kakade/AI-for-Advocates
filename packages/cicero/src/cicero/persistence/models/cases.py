@@ -15,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from cicero.db.base import Base
+from cicero.persistence.base import Base
 
 
 class Case(Base):

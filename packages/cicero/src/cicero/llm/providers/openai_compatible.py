@@ -7,10 +7,50 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from cicero.models.contracts import ChatMessage, TokenUsage
-from cicero.models.errors import ModelConfigurationError, ModelProviderError
+from cicero.core.exceptions import ModelConfigurationError, ModelProviderError
+from cicero.llm.contracts import ChatMessage, TokenUsage
 
 logger = logging.getLogger(__name__)
+
+
+def _decode_bpe_tokens(text: str) -> str:
+    """Decode raw byte-level BPE tokens (e.g., from vLLM AWQ tokenizers) back to clean UTF-8 text."""
+    if not text:
+        return ""
+    if not ("Ġ" in text or "Ċ" in text or "ĉ" in text or "č" in text):
+        return text
+
+    bs = (
+        list(range(ord("!"), ord("~") + 1))
+        + list(range(ord("\u00a1"), ord("\u00ac") + 1))
+        + list(range(ord("\u00ae"), ord("\u00ff") + 1))
+    )
+    cs = bs[:]
+    n = 0
+    for b in range(256):
+        if b not in bs:
+            bs.append(b)
+            cs.append(256 + n)
+            n += 1
+    byte_map = {chr(c): b for b, c in zip(bs, cs)}
+
+    try:
+        b_arr = bytearray()
+        for ch in text:
+            if ch in byte_map:
+                b_arr.append(byte_map[ch])
+            elif ord(ch) < 256:
+                b_arr.append(ord(ch))
+            else:
+                b_arr.extend(ch.encode("utf-8"))
+        return b_arr.decode("utf-8", errors="replace")
+    except Exception:
+        return (
+            text.replace("Ġ", " ")
+            .replace("Ċ", "\n")
+            .replace("ĉ", "\t")
+            .replace("č", "\r")
+        )
 
 
 class OpenAICompatibleProvider:
@@ -46,6 +86,7 @@ class OpenAICompatibleProvider:
         messages: Sequence[ChatMessage],
         max_output_tokens: int,
         temperature: float | None = None,
+        reasoning_effort: str | None = None,
         routing_affinity_key: str | None = None,
     ) -> "ProviderResult":
         if not self.base_url:
@@ -68,6 +109,8 @@ class OpenAICompatibleProvider:
         }
         if temperature is not None:
             payload["temperature"] = temperature
+        if reasoning_effort is not None:
+            payload["reasoning_effort"] = reasoning_effort
 
         headers = {
             "Authorization": f"Bearer {self.api_key.get_secret_value()}",
@@ -136,7 +179,9 @@ class OpenAICompatibleProvider:
             retryable = True
         elif status == 400:
             code = "invalid_request"
-            message = f"{self.name} rejected the request. Check model ID and request parameters."
+            err_text = response.text[:400]
+            logger.warning("%s returned HTTP 400 Bad Request: %s", self.name, err_text)
+            message = f"{self.name} rejected the request: {err_text}"
             retryable = False
         else:
             code = "provider_http_error"
@@ -189,6 +234,8 @@ class OpenAICompatibleProvider:
                 choice.get("finish_reason"),
             )
             raise ValueError("Provider response did not contain text content.")
+
+        content = _decode_bpe_tokens(content)
 
         raw_usage = payload.get("usage") or {}
         completion_details = raw_usage.get("completion_tokens_details") or {}

@@ -20,7 +20,7 @@ from cicero.agents.common import (
 )
 from cicero.agents.evaluator.prompts import PROMPT_VERSION, SYSTEM_PROMPT, build_prompt
 from cicero.agents.evaluator.schemas import EvaluationOutput
-from cicero.models.contracts import ModelRole
+from cicero.llm.contracts import ModelRole
 from cicero.tools.citation_verification import (
     check_reference_existence,
     verify_quote_references,

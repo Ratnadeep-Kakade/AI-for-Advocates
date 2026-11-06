@@ -7,8 +7,10 @@ evidence reference the model cites before the result may flow downstream.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import re
 from typing import Any, Protocol
 
 from cicero.agents.base import AgentContext, AgentResult, BaseAgent
@@ -21,7 +23,7 @@ from cicero.agents.document_intelligence.schemas import (
     CaseIntelligence,
     validate_intelligence,
 )
-from cicero.models.contracts import ChatMessage, GenerationRequest, ModelRole
+from cicero.llm.contracts import ChatMessage, GenerationRequest, ModelRole
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +88,15 @@ def build_evidence_registry(
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
-    """Extract the JSON object from a model response (fences tolerated)."""
+    """Extract the JSON object from a model response (fences and reasoning tags tolerated)."""
+    if not text:
+        raise ValueError("Model response is empty.")
+    # Strip DeepSeek-R1 reasoning tags
+    if "<think>" in text and "</think>" in text:
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    elif "<think>" in text:
+        text = re.sub(r"<think>.*", "", text, flags=re.DOTALL).strip()
+
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = stripped.strip("`")
@@ -121,17 +131,23 @@ class DocumentIntelligenceAgent(BaseAgent):
         )
         document_ids = inputs.get("document_ids")
 
-        packs: list[dict[str, Any]] = []
-        for query, top_k in retrieval_queries(str(objective)):
-            pack = await self.rag.retrieve(
-                organization_id=context.organization_id,
-                case_id=context.case_id,
-                query=query,
-                top_k=top_k,
-                token_budget=6000,
-                document_ids=document_ids,
-            )
-            packs.append(pack)
+        async def _fetch(q: str, k: int) -> dict[str, Any]:
+            try:
+                return await self.rag.retrieve(
+                    organization_id=context.organization_id,
+                    case_id=context.case_id,
+                    query=q,
+                    top_k=k,
+                    token_budget=3000,
+                    document_ids=document_ids,
+                )
+            except Exception as e:
+                logger.warning("RAG retrieve query failed for '%s': %s", q, e)
+                return {}
+
+        packs = await asyncio.gather(
+            *[_fetch(query, top_k) for query, top_k in retrieval_queries(str(objective))]
+        )
         registry = build_evidence_registry(packs)
 
         metadata: dict[str, Any] = {
@@ -198,13 +214,24 @@ class DocumentIntelligenceAgent(BaseAgent):
         remaining invalid references are stripped deterministically.
         """
         valid_keys = set(registry)
-        prompt_items = list(registry.values())
+        # Select top 15 highest-scoring evidence items to ensure prompt stays well within limits
+        prompt_items = sorted(
+            list(registry.values()),
+            key=lambda x: x.get("score") or 0.0,
+            reverse=True,
+        )[:15]
         feedback = ""
         last_error = ""
         for _attempt in range(2):
             user_prompt = build_user_prompt(objective=objective, evidence_items=prompt_items)
             if feedback:
                 user_prompt += f"\n\nYour previous response was invalid: {feedback}"
+
+            # Safely clamp max_output_tokens so (input + output) stays within 7600 (under 8192)
+            total_chars = len(SYSTEM_PROMPT) + len(user_prompt)
+            estimated_input_tokens = total_chars // 3.8
+            safe_max_output = max(512, min(3000, int(7600 - estimated_input_tokens)))
+
             result = await self.gateway.generate(
                 GenerationRequest(
                     role=ModelRole.DOCUMENT_INTELLIGENCE,
@@ -212,7 +239,7 @@ class DocumentIntelligenceAgent(BaseAgent):
                         ChatMessage(role="system", content=SYSTEM_PROMPT),
                         ChatMessage(role="user", content=user_prompt),
                     ],
-                    max_output_tokens=8192,
+                    max_output_tokens=safe_max_output,
                     routing_affinity_key=context.case_id,
                 )
             )
@@ -224,10 +251,8 @@ class DocumentIntelligenceAgent(BaseAgent):
                 feedback = last_error
                 continue
             intelligence, issues = validate_intelligence(intelligence, valid_keys)
-            if not issues:
-                return intelligence, [], result.model
-            feedback = "Unknown evidence references: " + "; ".join(issues)
-            last_error = feedback
-            cleaned = intelligence
+            # Return immediately on successful JSON validation; unsubstantiated refs are cleanly stripped
+            return intelligence, issues, result.model
         logger.warning("document_intelligence_validation_retry_exhausted: %s", last_error)
-        return cleaned, [last_error], result.model
+        empty = CaseIntelligence(missing_information=[last_error or "Analysis output failed to parse"])
+        return empty, [last_error], "failed"

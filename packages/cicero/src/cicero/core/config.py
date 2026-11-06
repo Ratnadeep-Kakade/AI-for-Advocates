@@ -30,7 +30,9 @@ class Settings(BaseSettings):
         default=None, validation_alias="MODEL_API_KEY", repr=False
     )
     vllm_api_key: SecretStr | None = Field(
-        default=None, validation_alias="CICERO_VLLM_API_KEY", repr=False
+        default=SecretStr("cicero-vllm-internal-key-2026"),
+        validation_alias="CICERO_VLLM_API_KEY",
+        repr=False,
     )
     generic_api_key: SecretStr | None = Field(
         default=None, validation_alias="CICERO_GENERIC_API_KEY", repr=False
@@ -38,7 +40,9 @@ class Settings(BaseSettings):
 
     meta_base_url: str = "https://api.meta.ai/v1"
     meta_model_id: str = "muse-spark-1.3"
-    vllm_base_url: str | None = None
+    vllm_base_url: str | None = (
+        "https://computer-1575-vision--cicero-llama-inference-llamaserver.us-east.modal.direct/v1"
+    )
     generic_base_url: str | None = None
 
     interpreter_provider: ProviderName = "meta"
@@ -46,22 +50,19 @@ class Settings(BaseSettings):
     orchestrator_provider: ProviderName = "meta"
     orchestrator_model: str = "muse-spark-1.3"
 
-    # Document Intelligence runs on Muse Spark, fed by the RAG evidence pack.
-    document_intelligence_provider: ProviderName = "meta"
-    document_intelligence_model: str = "muse-spark-1.3"
-    # Demo default: all roles on Muse Spark so the full agent flow runs
-    # end-to-end today. The four specialists move to DeepSeek on the A100
-    # vLLM service purely by configuration (CICERO_<ROLE>_PROVIDER=
-    # vllm_modal, CICERO_<ROLE>_MODEL=deepseek-r1-distill-llama-70b,
-    # CICERO_VLLM_BASE_URL=...) once cicero-llama-inference is deployed.
-    legal_researcher_provider: ProviderName = "meta"
-    legal_researcher_model: str = "muse-spark-1.3"
-    argument_provider: ProviderName = "meta"
-    argument_model: str = "muse-spark-1.3"
-    counterargument_provider: ProviderName = "meta"
-    counterargument_model: str = "muse-spark-1.3"
-    evaluator_provider: ProviderName = "meta"
-    evaluator_model: str = "muse-spark-1.3"
+    # Document Intelligence runs on DeepSeek-R1-Distill-Llama-70B on Modal's A100.
+    document_intelligence_provider: ProviderName = "vllm_modal"
+    document_intelligence_model: str = "deepseek-r1-distill-llama-70b"
+    # Specialised reasoning agents run DeepSeek-R1-Distill-Llama-70B on Modal's A100-80GB
+    # vLLM service. Graceful fallback to Meta Muse-Spark is handled at the gateway layer.
+    legal_researcher_provider: ProviderName = "vllm_modal"
+    legal_researcher_model: str = "deepseek-r1-distill-llama-70b"
+    argument_provider: ProviderName = "vllm_modal"
+    argument_model: str = "deepseek-r1-distill-llama-70b"
+    counterargument_provider: ProviderName = "vllm_modal"
+    counterargument_model: str = "deepseek-r1-distill-llama-70b"
+    evaluator_provider: ProviderName = "vllm_modal"
+    evaluator_model: str = "deepseek-r1-distill-llama-70b"
 
     model_timeout_seconds: float = Field(default=300.0, gt=0, le=1800)
     model_max_retries: int = Field(default=2, ge=0, le=5)
@@ -89,7 +90,10 @@ class Settings(BaseSettings):
     gcs_max_file_size_bytes: int = Field(default=200 * 1024 * 1024, ge=1)
     # Pub/Sub topic used to dispatch registered document versions to Cloud Run.
     pubsub_document_topic: str | None = None
-    rag_worker_url: str | None = None
+    rag_worker_url: str | None = Field(
+        default="https://computer-1575-vision--cicero-rag-worker-fastapi-app.us-east.modal.run",
+        validation_alias="CICERO_RAG_WORKER_URL",
+    )
     # Gemini is used only as the Google Search grounding intermediary for the
     # Legal Researcher (DeepSeek reasons over the collected sources).
     gemini_api_key: SecretStr | None = Field(

@@ -27,8 +27,19 @@ def test_all_existing_tables_are_registered() -> None:
     assert actual == expected
 
 
+def _get_env_path() -> Path:
+    candidates = [
+        Path(__file__).parent.parent / "migrations" / "env.py",
+        Path("migrations/env.py"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
+
+
 def test_migration_environment_declares_only_cicero_schemas() -> None:
-    env_path = Path("migrations/env.py")
+    env_path = _get_env_path()
     source = env_path.read_text(encoding="utf-8")
     for schema in (
         "auth",
@@ -46,7 +57,7 @@ def test_migration_environment_declares_only_cicero_schemas() -> None:
 
 
 def test_migration_environment_has_no_automatic_schema_creation() -> None:
-    source = Path("migrations/env.py").read_text(encoding="utf-8")
+    source = _get_env_path().read_text(encoding="utf-8")
     assert "include_name=include_name" in source
     assert "include_object=include_object" in source
     assert "version_table_schema=VERSION_SCHEMA" in source

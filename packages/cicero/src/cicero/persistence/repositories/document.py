@@ -6,8 +6,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cicero.db.models.documents import Document, DocumentVersion
-from cicero.db.repositories.base import BaseRepository
+from cicero.persistence.models.documents import Document, DocumentVersion
+from cicero.persistence.repositories.base import BaseRepository
 
 
 class _UnsetType:

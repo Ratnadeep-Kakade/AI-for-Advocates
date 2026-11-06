@@ -1,3 +1,4 @@
+id: document_intelligence
 agent_id: document_intelligence
 name: Document Intelligence Agent
 version: "1.0"
@@ -13,6 +14,18 @@ capabilities:
   - Identify potential breaches
   - Detect contradictions between clauses
 model_role: document_intelligence
+execution_strategy: map_reduce
+limits:
+  max_turns: 1
+  concurrency_cap: 5
+  timeout_s: 300
+requested_tools:
+  - retrieve_case_evidence
+skills:
+  - statutory_interpretation
+verification:
+  - citation_exists
+  - quote_matches_source
 tools:
   - retrieve_case_evidence
 inputs:

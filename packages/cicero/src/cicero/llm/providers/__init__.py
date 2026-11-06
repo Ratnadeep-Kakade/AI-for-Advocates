@@ -1,11 +1,17 @@
-from cicero.models.providers.meta import MetaModelProvider
-from cicero.models.providers.mock import MockModelProvider
-from cicero.models.providers.registry import ProviderRegistry
-from cicero.models.providers.vllm_modal import VLLMModalProvider
+from .base import ModelProvider
+from .fake import FakeLLMProvider
+from .meta import MetaModelProvider
+from .mock import MockModelProvider
+from .openai_compatible import OpenAICompatibleProvider
+from .registry import ProviderRegistry
+from .vllm_modal import VLLMModalProvider
 
 __all__ = [
+    "ModelProvider",
     "MetaModelProvider",
     "MockModelProvider",
+    "OpenAICompatibleProvider",
     "ProviderRegistry",
     "VLLMModalProvider",
+    "FakeLLMProvider",
 ]

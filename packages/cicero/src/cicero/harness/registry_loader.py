@@ -15,8 +15,8 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from cicero.models.contracts import ModelRole
-from cicero.registry.models import AgentManifest
+from cicero.llm.contracts import ModelRole
+from .manifest import AgentManifest
 
 # Central tool-permission policy: the maximum tools each agent may declare.
 # Manifests may only request tools listed here for their agent.

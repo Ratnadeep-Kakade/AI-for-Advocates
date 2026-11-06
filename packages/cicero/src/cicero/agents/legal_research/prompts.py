@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from cicero.agents.legal_researcher.schemas import ResearchFindings
+from cicero.agents.legal_research.schemas import ResearchFindings
 
 PROMPT_VERSION = "research-v1"
 

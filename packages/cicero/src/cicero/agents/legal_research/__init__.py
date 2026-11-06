@@ -1,1 +1,1 @@
-"""Legal Researcher Agent package (DeepSeek + Gemini Grounding adapter)."""
+from ..legal_researcher import *

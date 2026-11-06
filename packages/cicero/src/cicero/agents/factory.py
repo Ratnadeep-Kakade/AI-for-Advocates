@@ -8,8 +8,8 @@ from cicero.agents.common import Gateway, RagRetriever
 from cicero.agents.counterargument.agent import CounterargumentAgent
 from cicero.agents.document_intelligence.agent import DocumentIntelligenceAgent
 from cicero.agents.evaluator.agent import EvaluatorAgent
-from cicero.agents.legal_researcher.agent import LegalResearcherAgent
-from cicero.config import Settings
+from cicero.agents.legal_research.agent import LegalResearcherAgent
+from cicero.core.config import Settings
 from cicero.tools.web_search import GeminiGroundingAdapter
 
 

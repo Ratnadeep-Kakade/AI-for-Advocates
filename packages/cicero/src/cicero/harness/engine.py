@@ -15,7 +15,7 @@ from typing import Any, Protocol
 
 from cicero.agents.base import AgentContext, AgentResult, BaseAgent
 from cicero.orchestrator.schemas import ExecutionPlan, PlanTask, TaskSpecification
-from cicero.registry.loader import RuntimeRegistry
+from cicero.harness.registry_loader import RuntimeRegistry
 
 logger = logging.getLogger(__name__)
 

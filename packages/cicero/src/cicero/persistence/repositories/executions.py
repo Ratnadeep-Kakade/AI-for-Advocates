@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cicero.agents.base import AgentResult
-from cicero.db.models.agents import (
+from cicero.persistence.models.agents import (
     AgentResultRecord,
     ExecutionRecord,
     ExecutionTaskRecord,
@@ -100,6 +100,25 @@ class ExecutionRepository:
             .order_by(AgentResultRecord.created_at)
         )
         return list(result.scalars().all())
+
+    async def get_latest_result(
+        self,
+        *,
+        case_id: UUID,
+        organization_id: UUID,
+        agent_id: str = "document_intelligence",
+    ) -> AgentResultRecord | None:
+        result = await self.session.execute(
+            select(AgentResultRecord)
+            .where(
+                AgentResultRecord.case_id == case_id,
+                AgentResultRecord.organization_id == organization_id,
+                AgentResultRecord.agent_id == agent_id,
+            )
+            .order_by(AgentResultRecord.created_at.desc())
+            .limit(1)
+        )
+        return result.scalars().first()
 
     async def mark_task_started(self, execution_id: UUID, task_id: str) -> None:
         task = await self._get_task(execution_id, task_id)

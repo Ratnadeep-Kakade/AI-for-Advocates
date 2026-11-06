@@ -6,10 +6,9 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from cicero.rag.argon.chunker import HierarchicalLegalChunker
-from cicero.rag.argon.docling_parser import DoclingLegalParser
-from cicero.rag.argon.schemas import LocalFilesystemDocumentStorage
-from cicero.rag.argon.structural_processor import (
+from cicero.rag.ingestion.chunker import HierarchicalLegalChunker
+from cicero.rag.ingestion.schemas import LocalFilesystemDocumentStorage
+from cicero.rag.ingestion.structural_processor import (
     CrossReferenceExtractor,
     DefinitionsExtractor,
     LegalDateExtractor,
