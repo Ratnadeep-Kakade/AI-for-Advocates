@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { BookOpen, Briefcase, FileSearch, Gavel, Pencil, Plus, Scale, ShieldQuestion, Sparkles } from "lucide-react";
 import { useStore } from "../store";
-import type { Message, TaskMode } from "../types";
+import type { Message, StreamEvent, TaskMode } from "../types";
 import { streamChat } from "../lib/api";
 import { applyEvent } from "../lib/events";
 import { ingestFiles } from "../lib/ingest";
@@ -73,7 +73,7 @@ export default function ChatPage() {
           chat_id: id, case_id: caseId, prompt, model: st.model, mode: st.mode, jurisdiction: theCase?.jurisdiction ?? st.jurisdiction,
           agent_models: st.agentModels, document_ids: caseDocs.map((d) => d.id), history,
         },
-        (e) => upd((m) => applyEvent(m, e)),
+        (e: StreamEvent) => upd((m) => applyEvent(m, e)),
         ctrl.signal
       );
       upd((m) => (m.status === "streaming" ? { ...m, status: "done" } : m));
@@ -126,7 +126,7 @@ export default function ChatPage() {
           document_ids: caseDocs.map((d) => d.id),
           history,
         },
-        (e) => upd((m) => applyEvent(m, e)),
+        (e: StreamEvent) => upd((m) => applyEvent(m, e)),
         ctrl.signal
       );
       upd((m) => (m.status === "streaming" ? { ...m, status: "done" } : m));

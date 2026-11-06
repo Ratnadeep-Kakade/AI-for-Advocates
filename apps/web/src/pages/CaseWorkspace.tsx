@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Loader2, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import { useStore } from "../store";
-import type { CaseDoc, CaseIntel } from "../types";
+import type { Case, CaseDoc, CaseIntel } from "../types";
 import { analyzeCase, deleteDocumentRemote, fetchCases, getCaseIntel } from "../lib/api";
 import { ingestFiles, syncCaseDocuments } from "../lib/ingest";
 import { cx, fmtDate, fmtSize, fmtTime } from "../lib/util";
@@ -106,7 +106,7 @@ export default function CaseWorkspace() {
     if (!c && caseId) {
       setLoadingCase(true);
       fetchCases()
-        .then((rows) => setCases(rows))
+        .then((rows: Case[]) => setCases(rows))
         .catch(() => {})
         .finally(() => setLoadingCase(false));
     }
@@ -117,7 +117,7 @@ export default function CaseWorkspace() {
     if (!caseId) return;
     if (!c?.intel) {
       getCaseIntel(caseId)
-        .then((intel) => {
+        .then((intel: CaseIntel | null) => {
           if (intel) setIntel(caseId, intel);
         })
         .catch(() => {});

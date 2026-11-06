@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FileText, MessageSquare, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useStore } from "../store";
+import type { Case } from "../types";
 import { createCaseRemote, fetchCases, USE_MOCK } from "../lib/api";
 import { daysUntil, fmtDate } from "../lib/util";
 import { Badge, Empty, Field, Modal, PageHeader, btnPrimary, input } from "../components/ui";
@@ -17,7 +18,7 @@ export default function CasesPage() {
     let cancelled = false;
     setLoading(cases.length === 0);
     fetchCases()
-      .then((rows) => { if (!cancelled) setCases(rows); })
+      .then((rows: Case[]) => { if (!cancelled) setCases(rows); })
       .catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load cases"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -114,7 +115,7 @@ export default function CasesPage() {
               setSaving(true);
               setError(null);
               createCaseRemote({ ...f, title: f.title.trim() })
-                .then((created) => {
+                .then((created: Case) => {
                   setCases([created, ...useStore.getState().cases.filter((item) => item.id !== created.id)]);
                   setOpen(false);
                   nav(`/cases/${created.id}`);
