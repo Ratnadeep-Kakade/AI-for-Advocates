@@ -355,6 +355,3 @@ Visit `http://localhost:5173` to explore the Cicero workspace.
 
 ---
 
-## License
-
-Cicero is open-source software licensed under the **[Apache License 2.0](LICENSE)**.
